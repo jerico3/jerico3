@@ -108,9 +108,32 @@
     #qr img { width: 220px; height: 220px; image-rendering: pixelated; }
     #qr-print { text-align: center; }
     .qr-url { font-weight: 700; word-break: break-all; margin: 12px 0 4px; }
+    /* relatório de acessos */
+    .tiles { display: grid; gap: 12px; grid-template-columns: repeat(4, minmax(0, 1fr)); margin-bottom: 20px; }
+    @media (max-width: 700px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+    .tile { border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+    .tile span { color: var(--muted); font-size: .78rem; font-weight: 600; }
+    .tile strong { display: block; font-size: 1.45rem; font-weight: 800; line-height: 1.25; font-variant-numeric: tabular-nums; }
+    .tile small { color: var(--muted); font-size: .78rem; }
+    .grafico-titulo { font-size: .85rem; font-weight: 700; margin: 0 0 8px; }
+    .barras { position: relative; display: flex; align-items: flex-end; gap: 2px; height: 160px; border-bottom: 1px solid #cbd5e1; }
+    .barras .col { flex: 1; height: 100%; display: flex; align-items: flex-end; cursor: default; }
+    .barras .col i { display: block; width: 100%; background: var(--navy-2); border-radius: 4px 4px 0 0; min-height: 0; }
+    .barras .col:hover i { background: var(--navy); }
+    .barras .col.vazio i { background: transparent; }
+    .eixo-x { display: flex; justify-content: space-between; color: var(--muted); font-size: .72rem; margin-top: 4px; }
+    .eixo-y { color: var(--muted); font-size: .72rem; margin-bottom: 4px; }
+    .dica-grafico { position: fixed; pointer-events: none; background: #0f172a; color: #fff; font-size: .78rem; padding: 6px 9px; border-radius: 7px; z-index: 20; white-space: nowrap; }
+    .disp { display: grid; grid-template-columns: 110px 1fr 90px; gap: 8px 12px; align-items: center; font-size: .88rem; }
+    .disp .trilho { height: 12px; background: #eef1f6; border-radius: 4px; overflow: hidden; }
+    .disp .trilho i { display: block; height: 100%; background: var(--navy-2); border-radius: 0 4px 4px 0; }
+    .disp .val { text-align: right; font-variant-numeric: tabular-nums; color: #334155; }
+    .grid-rel { display: grid; gap: 24px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    @media (max-width: 860px) { .grid-rel { grid-template-columns: 1fr; } }
+    details.tabela-rel summary { cursor: pointer; color: var(--navy-2); font-weight: 600; font-size: .85rem; margin-top: 16px; }
     #links td { white-space: normal; }
     #links td.acoes { white-space: nowrap; }
-    td.destino { word-break: break-all; min-width: 140px; }
+    td.destino { overflow-wrap: anywhere; min-width: 140px; }
     .link-end { font-weight: 700; color: var(--navy-2); }
     .prefixo-link { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
     .prefixo-link span { background: #f1f5f9; color: var(--muted); padding: 9px 10px; font-size: .85rem; white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
@@ -248,11 +271,48 @@
           <div id="qr"></div>
           <p class="qr-url" id="qr-url"></p>
           <p class="muted nao-imprimir" id="qr-destino" style="margin:0 0 14px"></p>
+          <label class="check nao-imprimir" style="justify-content:center;margin-bottom:12px"><input type="checkbox" id="qr-logo" checked> Logo no centro</label>
           <div class="nao-imprimir" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-            <a class="btn" id="baixar-qr" download="qrcode.gif">Baixar imagem</a>
+            <a class="btn" id="baixar-qr" download="qrcode.png">Baixar imagem</a>
             <button class="btn" onclick="window.print()">Imprimir</button>
           </div>
         </div>
+      </div>
+
+      <div class="card" id="relatorio" style="margin-top:16px" hidden>
+        <div class="cab">
+          <h2 id="rel-titulo">Acessos</h2>
+          <select id="rel-dias" aria-label="Período">
+            <option value="7">Últimos 7 dias</option>
+            <option value="30" selected>Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+          </select>
+        </div>
+        <div class="tiles">
+          <div class="tile"><span>Acessos no período</span><strong id="rel-total">–</strong></div>
+          <div class="tile"><span>Hoje</span><strong id="rel-hoje">–</strong></div>
+          <div class="tile"><span>Melhor dia</span><strong id="rel-pico">–</strong><small id="rel-pico-dia"></small></div>
+          <div class="tile"><span>Horário de pico</span><strong id="rel-hora">–</strong><small id="rel-hora-qtd"></small></div>
+        </div>
+        <div class="grid-rel">
+          <div>
+            <p class="grafico-titulo">Acessos por dia</p>
+            <div class="eixo-y" id="rel-max"></div>
+            <div class="barras" id="rel-barras" role="img"></div>
+            <div class="eixo-x" id="rel-eixo"></div>
+          </div>
+          <div>
+            <p class="grafico-titulo">Aparelho</p>
+            <div class="disp" id="rel-disp"></div>
+          </div>
+        </div>
+        <details class="tabela-rel">
+          <summary>Ver tabela por dia</summary>
+          <div class="tabela" style="margin-top:8px;max-height:280px;overflow:auto">
+            <table><thead><tr><th>Dia</th><th>Acessos</th></tr></thead><tbody id="rel-tabela"></tbody></table>
+          </div>
+        </details>
+        <p class="muted" style="font-size:.8rem;margin:12px 0 0">Pré-visualizações de link (WhatsApp, redes sociais) e robôs não entram na contagem. Nenhum dado pessoal é guardado.</p>
       </div>
     </section>
 
@@ -352,6 +412,7 @@
       <div class="campo" id="l-url-campo">
         <label for="l-url">Endereço de destino</label>
         <input type="url" id="l-url" placeholder="https://instagram.com/suaimportadora">
+        <label class="check" style="margin-top:10px"><input type="checkbox" id="l-utm"> Marcar origem (UTM) para o Google Analytics saber que veio do QR Code</label>
       </div>
       <div class="campo"><label for="l-desc">Descrição (opcional)</label><input type="text" id="l-desc" maxlength="120" placeholder="Ex.: Banner do estande"></div>
       <div class="rodape-dlg">
@@ -713,6 +774,8 @@
       'link.excluido': 'Excluiu link',
     };
 
+    const NOMES_DISPOSITIVO = { iphone: 'iPhone', android: 'Android', computador: 'Computador', outro: 'Outros' };
+
     async function carregarAtividade() {
       let logs;
       try { logs = await api('GET', '/api/admin/auditoria'); } catch (e) { return toast(e.message, true); }
@@ -783,6 +846,7 @@
         if (l.descricao) end.append(el('div', l.descricao, 'muted'));
         const acoes = el('td', null, 'acoes');
         acoes.append(botao('QR Code', '', () => { linkDoQr = l; gerarQr(); }));
+        acoes.append(botao('Acessos', '', () => abrirRelatorio(l)));
         if (ehAdmin()) {
           acoes.append(botao('Editar', '', () => abrirLink(l)));
           if (l.slug) acoes.append(botao('Excluir', 'perigo', () => excluirLink(l)));
@@ -793,23 +857,135 @@
       gerarQr();
     }
 
+    // Logo do centro do QR Code (public/qr-logo.png). Com logo, usa a correção de erro mais alta (H),
+    // que aguenta até ~30% do código coberto; a logo ocupa bem menos que isso.
+    const logoQr = new Image();
+    logoQr.onload = () => gerarQr();
+    logoQr.src = '/qr-logo.png';
+
+    function desenharQr(url, comLogo) {
+      const qr = qrcode(0, comLogo ? 'H' : 'M');
+      qr.addData(url);
+      qr.make();
+      const n = qr.getModuleCount();
+      const cel = 12, margem = 4 * cel, tam = n * cel + margem * 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = tam;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, tam, tam);
+      ctx.fillStyle = '#011250';
+      for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) ctx.fillRect(margem + c * cel, margem + r * cel, cel, cel);
+      if (comLogo && logoQr.complete && logoQr.naturalWidth) {
+        const lado = Math.round(n * cel * 0.22), meio = tam / 2;
+        ctx.fillStyle = '#fff';
+        ctx.beginPath();
+        ctx.arc(meio, meio, lado * 0.62, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.drawImage(logoQr, meio - lado / 2, meio - lado / 2, lado, lado);
+      }
+      return canvas.toDataURL('image/png');
+    }
+
     function gerarQr() {
       const box = $('qr');
       box.replaceChildren();
       if (!linkDoQr || typeof qrcode === 'undefined') return;
       const url = urlDoLink(linkDoQr);
-      const qr = qrcode(0, 'M');
-      qr.addData(url);
-      qr.make();
-      const dataUrl = qr.createDataURL(12, 4);
+      const dataUrl = desenharQr(url, $('qr-logo').checked);
       const img = el('img'); img.src = dataUrl; img.alt = 'QR Code para ' + url;
       box.append(img);
       $('qr-titulo').textContent = linkDoQr.slug ? `QR Code de /${linkDoQr.slug}` : 'QR Code principal';
       $('qr-url').textContent = url.replace(/^https?:\/\//, '');
       $('qr-destino').textContent = `Hoje leva para: ${nomeDestino(linkDoQr.destino)}`;
       $('baixar-qr').href = dataUrl;
-      $('baixar-qr').download = `qrcode-${linkDoQr.slug || 'principal'}.gif`;
+      $('baixar-qr').download = `qrcode-${linkDoQr.slug || 'principal'}.png`;
     }
+
+    try { $('qr-logo').checked = localStorage.getItem('qr-logo') !== '0'; } catch {}
+    $('qr-logo').onchange = () => {
+      try { localStorage.setItem('qr-logo', $('qr-logo').checked ? '1' : '0'); } catch {}
+      gerarQr();
+    };
+
+    // ---------- relatório de acessos ----------
+
+    let linkDoRelatorio = null;
+    function abrirRelatorio(l) {
+      linkDoRelatorio = l;
+      $('relatorio').hidden = false;
+      carregarRelatorio();
+      $('relatorio').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+    $('rel-dias').onchange = () => carregarRelatorio();
+
+    async function carregarRelatorio() {
+      const l = linkDoRelatorio;
+      if (!l) return;
+      let r;
+      try { r = await api('GET', `/api/admin/links/${l.id}/acessos?dias=${$('rel-dias').value}`); } catch (e) { return toast(e.message, true); }
+      const nome = l.slug ? `/${l.slug}` : 'link principal';
+      $('rel-titulo').textContent = `Acessos do ${nome}`;
+      const total = r.dias.reduce((s, d) => s + d.total, 0);
+      const pico = r.dias.reduce((a, d) => (d.total > a.total ? d : a), { total: 0 });
+      const horaPico = r.horas.reduce((a, h) => (h.total > a.total ? h : a), { total: 0 });
+      $('rel-total').textContent = total.toLocaleString('pt-BR');
+      $('rel-hoje').textContent = (r.dias.find((d) => d.dia === r.hoje)?.total || 0).toLocaleString('pt-BR');
+      $('rel-pico').textContent = pico.total ? pico.total.toLocaleString('pt-BR') : '–';
+      $('rel-pico-dia').textContent = pico.total ? fmtDia(pico.dia) : '';
+      $('rel-hora').textContent = horaPico.total ? `${String(horaPico.hora).padStart(2, '0')}h` : '–';
+      $('rel-hora-qtd').textContent = horaPico.total ? `${horaPico.total} acessos nessa faixa` : '';
+
+      // Barras por dia (uma cor só: a identidade vem do eixo, não da cor).
+      const max = Math.max(1, ...r.dias.map((d) => d.total));
+      $('rel-max').textContent = `máx. ${max.toLocaleString('pt-BR')}`;
+      const barras = $('rel-barras');
+      barras.setAttribute('aria-label', `Acessos por dia: ${total} no período`);
+      barras.replaceChildren(...r.dias.map((d) => {
+        const col = el('div', null, 'col' + (d.total ? '' : ' vazio'));
+        const barra = el('i');
+        barra.style.height = `${(d.total / max) * 100}%`;
+        col.append(barra);
+        col.dataset.dica = `${fmtDia(d.dia)}: ${d.total} acesso${d.total === 1 ? '' : 's'}`;
+        return col;
+      }));
+      const marcas = [r.dias[0], r.dias[Math.floor(r.dias.length / 2)], r.dias[r.dias.length - 1]];
+      $('rel-eixo').replaceChildren(...marcas.map((d) => el('span', fmtDia(d.dia).slice(0, 5))));
+
+      // Aparelhos: barras horizontais com rótulo e número.
+      const disp = $('rel-disp');
+      if (!r.dispositivos.length) {
+        disp.replaceChildren(el('span', 'Nenhum acesso no período.', 'muted'));
+      } else {
+        const totalDisp = r.dispositivos.reduce((s, d) => s + d.total, 0);
+        disp.replaceChildren(...r.dispositivos.flatMap((d) => {
+          const pct = Math.round((d.total / totalDisp) * 100);
+          const trilho = el('div', null, 'trilho');
+          const fill = el('i');
+          fill.style.width = `${pct}%`;
+          trilho.append(fill);
+          return [el('span', NOMES_DISPOSITIVO[d.dispositivo] || d.dispositivo), trilho, el('span', `${pct}% (${d.total})`, 'val')];
+        }));
+      }
+
+      const linhas = r.dias.filter((d) => d.total).reverse();
+      if (!linhas.length) linhaVazia($('rel-tabela'), 2, 'Nenhum acesso no período.');
+      else $('rel-tabela').replaceChildren(...linhas.map((d) => { const tr = el('tr'); tr.append(el('td', fmtDia(d.dia)), el('td', String(d.total))); return tr; }));
+    }
+
+    // Dica ao passar o mouse (ou tocar) nas barras do gráfico.
+    const dica = el('div', null, 'dica-grafico');
+    dica.hidden = true;
+    document.body.append(dica);
+    $('rel-barras').addEventListener('pointermove', (e) => {
+      const col = e.target.closest('.col');
+      if (!col) return (dica.hidden = true);
+      dica.textContent = col.dataset.dica;
+      dica.hidden = false;
+      dica.style.left = `${Math.min(e.clientX + 12, innerWidth - dica.offsetWidth - 8)}px`;
+      dica.style.top = `${e.clientY - 36}px`;
+    });
+    $('rel-barras').addEventListener('pointerleave', () => (dica.hidden = true));
 
     let linkEditando = null;
     function abrirLink(l = null) {
@@ -825,6 +1001,7 @@
       $('l-tipo').value = interno ? '/sorteio' : 'url';
       $('l-url').value = interno ? '' : l.destino;
       $('l-url-campo').hidden = interno;
+      $('l-utm').checked = l ? !!l.utm : true;
       $('l-desc').value = l?.descricao || '';
       d.showModal();
     }
@@ -838,6 +1015,7 @@
         slug: $('l-slug').value,
         destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/sorteio',
         descricao: $('l-desc').value,
+        utm: $('l-utm').checked,
       };
       try {
         const salvo = linkEditando
@@ -872,6 +1050,10 @@
       try {
         const cfg = await fetch('/api/config').then((r) => r.json());
         if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
+        // Domínio público configurado no servidor (PUBLIC_URL), a menos que este navegador já tenha outro salvo.
+        let salvo = null;
+        try { salvo = localStorage.getItem('base-url'); } catch {}
+        if (cfg.publicUrl && !salvo) $('base-url').value = cfg.publicUrl;
         $('evento').textContent = cfg.evento;
         document.title = `Painel · ${cfg.evento}`;
       } catch {}

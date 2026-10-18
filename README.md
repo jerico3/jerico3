@@ -37,6 +37,7 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 
 | Variável         | Padrão              | Descrição                                            |
 | ---------------- | ------------------- | ---------------------------------------------------- |
+| `PUBLIC_URL`     | _(vazio)_           | Domínio público (ex.: `https://importadoravw.link`), usado nos links e QR Codes do painel. |
 | `ADMIN_EMAIL`    | `admin@sorteio.local` | E-mail do primeiro administrador (só no 1º uso).   |
 | `ADMIN_PASSWORD` | _(vazio)_           | Senha do primeiro administrador (só no 1º uso).      |
 | `EVENT_NAME`     | `Sorteio`           | Nome na aba do navegador, no painel e no QR Code.    |
@@ -77,6 +78,14 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
   O redirecionamento é temporário (302, sem cache), então a troca de destino vale na hora, inclusive
   para quem já escaneou antes. Só administradores criam e editam links. Confira o domínio público
   no campo da aba antes de imprimir.
+  - **QR Code com logo** no centro (`public/qr-logo.png`; com logo o QR usa correção de erro alta),
+    para baixar em PNG ou imprimir.
+  - **Relatório de acessos** por link: total, hoje, melhor dia, horário de pico, gráfico por dia e
+    divisão por aparelho (iPhone, Android, computador). Pré-visualizações do WhatsApp/redes e robôs
+    não contam. Só guarda dia, hora e tipo de aparelho, nada que identifique a pessoa.
+  - **UTM automático** (opcional por link): destinos externos recebem
+    `utm_source=qrcode&utm_medium=qr&utm_campaign=<link>`, para o Google Analytics mostrar que o
+    acesso veio do QR Code. Endereços que já têm UTM não são alterados.
 - **Sortear**: escolhe um código aleatório entre os cadastros do dia escolhido ainda não sorteados
   (gerador criptográfico `crypto.randomInt`), com animação de roleta. Os sorteados ficam no
   histórico e não concorrem de novo; **Reiniciar histórico** (só administradores) limpa o histórico.
@@ -92,6 +101,7 @@ Com Docker:
 ```bash
 docker build -t sorteio .
 docker run -p 3000:3000 -v sorteio-data:/app/data \
+  -e PUBLIC_URL=https://importadoravw.link \
   -e ADMIN_EMAIL=voce@empresa.com -e ADMIN_PASSWORD=uma-senha-forte -e EVENT_NAME="Importadora" sorteio
 ```
 

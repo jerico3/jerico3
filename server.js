@@ -13,6 +13,8 @@ const PORT = Number(process.env.PORT) || 3000;
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@sorteio.local').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const EVENT_NAME = process.env.EVENT_NAME || 'Sorteio';
+// Endereço público usado para montar os links e QR Codes no painel (ex.: https://importadoravw.link).
+const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const CODE_PREFIX = process.env.CODE_PREFIX ?? 'VW-';
 // Fuso usado para definir o "dia do cadastro" (cada evento sorteia só entre os cadastros do seu dia).
 const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
@@ -95,7 +97,20 @@ db.exec(`
     atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
   );
   INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/sorteio', 'Link principal (QR Code impresso)');
+  -- Um registro por acesso a um link, para os relatórios. Não guarda IP nem nada que identifique a pessoa.
+  CREATE TABLE IF NOT EXISTS acessos (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    link_id      INTEGER NOT NULL REFERENCES links(id) ON DELETE CASCADE,
+    dia          TEXT NOT NULL,
+    hora         INTEGER NOT NULL,
+    dispositivo  TEXT NOT NULL,
+    criado_em    TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS acessos_link_dia ON acessos (link_id, dia);
 `);
+if (!db.prepare('PRAGMA table_info(links)').all().some((c) => c.name === 'utm')) {
+  db.exec('ALTER TABLE links ADD COLUMN utm INTEGER NOT NULL DEFAULT 1');
+}
 
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em';
 const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em';
@@ -151,11 +166,17 @@ const q = {
   insertLog: db.prepare('INSERT INTO auditoria (usuario_id, usuario_nome, acao, detalhe) VALUES (?, ?, ?, ?)'),
   logs: db.prepare('SELECT id, usuario_nome, acao, detalhe, criado_em FROM auditoria ORDER BY id DESC LIMIT 300'),
 
-  links: db.prepare('SELECT id, slug, destino, descricao, cliques, atualizado_em FROM links ORDER BY slug <> \'\', slug'),
-  linkById: db.prepare('SELECT id, slug, destino, descricao, cliques, atualizado_em FROM links WHERE id = ?'),
-  linkBySlug: db.prepare('SELECT id, destino FROM links WHERE slug = ?'),
-  insertLink: db.prepare('INSERT INTO links (slug, destino, descricao) VALUES (?, ?, ?)'),
-  updateLink: db.prepare("UPDATE links SET slug = ?, destino = ?, descricao = ?, atualizado_em = datetime('now') WHERE id = ?"),
+  links: db.prepare('SELECT id, slug, destino, descricao, utm, cliques, atualizado_em FROM links ORDER BY slug <> \'\', slug'),
+  linkById: db.prepare('SELECT id, slug, destino, descricao, utm, cliques, atualizado_em FROM links WHERE id = ?'),
+  linkBySlug: db.prepare('SELECT id, slug, destino, utm FROM links WHERE slug = ?'),
+  insertLink: db.prepare('INSERT INTO links (slug, destino, descricao, utm) VALUES (?, ?, ?, ?)'),
+  updateLink: db.prepare("UPDATE links SET slug = ?, destino = ?, descricao = ?, utm = ?, atualizado_em = datetime('now') WHERE id = ?"),
+  insertAcesso: db.prepare('INSERT INTO acessos (link_id, dia, hora, dispositivo) VALUES (?, ?, ?, ?)'),
+  acessosPorDia: db.prepare('SELECT dia, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ? GROUP BY dia'),
+  acessosPorDispositivo: db.prepare(`
+    SELECT dispositivo, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ?
+    GROUP BY dispositivo ORDER BY total DESC`),
+  acessosPorHora: db.prepare('SELECT hora, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ? GROUP BY hora'),
   deleteLink: db.prepare('DELETE FROM links WHERE id = ?'),
   countClick: db.prepare('UPDATE links SET cliques = cliques + 1 WHERE id = ?'),
 };
@@ -339,8 +360,12 @@ function csvCell(v) {
 
 // "AAAA-MM-DD" no fuso configurado.
 const formatoDia = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
-function hoje() {
-  return formatoDia.format(new Date());
+const formatoHora = new Intl.DateTimeFormat('en-US', { timeZone: TIMEZONE, hour: 'numeric', hourCycle: 'h23' });
+function hoje(data = new Date()) {
+  return formatoDia.format(data);
+}
+function horaLocal(data = new Date()) {
+  return Number(formatoHora.format(data));
 }
 
 function dataParam(value) {
@@ -405,7 +430,7 @@ function rota(method, pattern, handler) {
   routes.push({ method, regex, keys, handler });
 }
 
-rota('GET', '/api/config', (req, res) => json(res, 200, { evento: EVENT_NAME, prefixo: CODE_PREFIX, hoje: hoje() }));
+rota('GET', '/api/config', (req, res) => json(res, 200, { evento: EVENT_NAME, prefixo: CODE_PREFIX, hoje: hoje(), publicUrl: PUBLIC_URL }));
 
 rota('POST', '/api/cadastro', async (req, res) => {
   limiteCadastro.contar(clientIp(req));
@@ -657,7 +682,7 @@ function normalizeLink(body, { principal }) {
   }
   if (!ok) errors.push('Informe um destino válido, começando com https:// (ou /sorteio para o formulário).');
   if (!errors.length && destino === '/' + slug) errors.push('O link não pode apontar para ele mesmo.');
-  return { slug, destino, descricao, errors };
+  return { slug, destino, descricao, utm: body.utm === false ? 0 : 1, errors };
 }
 
 rota('GET', '/api/admin/links', (req, res) => {
@@ -671,7 +696,7 @@ rota('POST', '/api/admin/links', async (req, res) => {
   const d = normalizeLink(await readJson(req).catch(() => ({})), { principal: false });
   if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
   try {
-    const r = q.insertLink.run(d.slug, d.destino, d.descricao);
+    const r = q.insertLink.run(d.slug, d.destino, d.descricao, d.utm);
     registrar(u, 'link.criado', `/${d.slug} → ${d.destino}`);
     json(res, 201, q.linkById.get(Number(r.lastInsertRowid)));
   } catch (e) {
@@ -688,7 +713,7 @@ rota('PUT', '/api/admin/links/:id', async (req, res, { id }) => {
   const d = normalizeLink(await readJson(req).catch(() => ({})), { principal: antes.slug === '' });
   if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
   try {
-    q.updateLink.run(d.slug, d.destino, d.descricao, id);
+    q.updateLink.run(d.slug, d.destino, d.descricao, d.utm, id);
   } catch (e) {
     if (ehConflitoUnico(e)) return json(res, 409, { erro: 'Já existe um link com este endereço.' });
     throw e;
@@ -696,6 +721,7 @@ rota('PUT', '/api/admin/links/:id', async (req, res, { id }) => {
   const mudancas = [];
   if (antes.slug !== d.slug) mudancas.push(`endereço: /${antes.slug} → /${d.slug}`);
   if (antes.destino !== d.destino) mudancas.push(`destino: ${antes.destino} → ${d.destino}`);
+  if (antes.utm !== d.utm) mudancas.push(d.utm ? 'UTM ligado' : 'UTM desligado');
   registrar(u, 'link.editado', `/${d.slug} · ${mudancas.join('; ') || 'só a descrição'}`);
   json(res, 200, q.linkById.get(id));
 });
@@ -711,11 +737,61 @@ rota('DELETE', '/api/admin/links/:id', (req, res, { id }) => {
   json(res, 200, { ok: true });
 });
 
+rota('GET', '/api/admin/links/:id/acessos', (req, res, { id }) => {
+  if (!exigirUsuario(req, res)) return;
+  if (!q.linkById.get(id)) return json(res, 404, { erro: 'Link não encontrado.' });
+  const dias = Math.min(Math.max(Number(new URL(req.url, 'http://localhost').searchParams.get('dias')) || 30, 1), 365);
+  // Lista todos os dias do período (inclusive os sem acesso) para o gráfico não pular datas.
+  const lista = [];
+  for (let i = dias - 1; i >= 0; i--) lista.push(hoje(new Date(Date.now() - i * 86400000)));
+  const inicio = lista[0];
+  const porDia = new Map(q.acessosPorDia.all(id, inicio).map((r) => [r.dia, r.total]));
+  const porHora = new Map(q.acessosPorHora.all(id, inicio).map((r) => [r.hora, r.total]));
+  json(res, 200, {
+    dias: lista.map((dia) => ({ dia, total: porDia.get(dia) || 0 })),
+    horas: Array.from({ length: 24 }, (_, h) => ({ hora: h, total: porHora.get(h) || 0 })),
+    dispositivos: q.acessosPorDispositivo.all(id, inicio),
+    hoje: hoje(),
+  });
+});
+
+// Pré-visualizações de link (WhatsApp, redes sociais) e robôs não contam como acesso.
+const ROBO = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegram|slack|discord|skype|preview|curl|wget|python-requests|go-http-client/i;
+
+function dispositivo(ua) {
+  if (/iphone|ipad|ipod/i.test(ua)) return 'iphone';
+  if (/android/i.test(ua)) return 'android';
+  if (/windows|macintosh|linux|cros/i.test(ua)) return 'computador';
+  return 'outro';
+}
+
+// Acrescenta etiquetas UTM para o Google Analytics / Instagram saberem que o acesso veio do QR Code.
+// Destinos internos (/sorteio) e endereços que já têm UTM ficam como estão.
+function comUtm(destino, slug) {
+  let u;
+  try {
+    u = new URL(destino);
+  } catch {
+    return destino;
+  }
+  if ([...u.searchParams.keys()].some((k) => k.startsWith('utm_'))) return destino;
+  u.searchParams.set('utm_source', 'qrcode');
+  u.searchParams.set('utm_medium', 'qr');
+  u.searchParams.set('utm_campaign', slug || 'principal');
+  return u.toString();
+}
+
 // Redireciona um link para o destino atual. 302 + no-store para os celulares não guardarem o
 // destino: assim a troca no painel vale na hora para o QR Code já impresso.
-function redirecionarLink(res, link) {
-  q.countClick.run(link.id);
-  send(res, 302, '', { Location: link.destino, 'Cache-Control': 'no-store' });
+function redirecionarLink(req, res, link) {
+  const ua = String(req.headers['user-agent'] || '');
+  if (link.id && !ROBO.test(ua)) {
+    const agora = new Date();
+    q.countClick.run(link.id);
+    q.insertAcesso.run(link.id, hoje(agora), horaLocal(agora), dispositivo(ua));
+  }
+  const destino = link.utm ? comUtm(link.destino, link.slug) : link.destino;
+  send(res, 302, '', { Location: destino, 'Cache-Control': 'no-store' });
 }
 
 rota('GET', '/api/admin/auditoria', (req, res) => {
@@ -725,7 +801,7 @@ rota('GET', '/api/admin/auditoria', (req, res) => {
 
 // --- páginas ---
 
-rota('GET', '/', (req, res) => redirecionarLink(res, q.linkBySlug.get('') || { id: 0, destino: '/sorteio' }));
+rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') || { id: 0, slug: '', destino: '/sorteio' }));
 
 rota('GET', '/sorteio', (req, res) => serveFile(res, 'index.html'));
 
@@ -772,7 +848,7 @@ const server = http.createServer(async (req, res) => {
     if (pathname === '/index.html') return redirect(res, '/sorteio');
     const slug = pathname.toLowerCase().match(/^\/([a-z0-9-]{1,40})\/?$/);
     const link = slug && q.linkBySlug.get(slug[1]);
-    if (link) return redirecionarLink(res, link);
+    if (link) return redirecionarLink(req, res, link);
     if (pathname === '/admin.html') return redirect(res, '/admin');
     if (pathname === '/login.html') return redirect(res, '/login');
     return serveFile(res, decodeURIComponent(pathname).replace(/^\/+/, ''));
