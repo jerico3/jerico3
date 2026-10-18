@@ -103,12 +103,12 @@
     <section class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
         <h2 style="margin:0">Lista de cadastros</h2>
-        <input type="search" id="busca" placeholder="Buscar por nome, telefone ou número" style="max-width:320px">
+        <input type="search" id="busca" placeholder="Buscar por nome, CPF, telefone ou número" style="max-width:320px">
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Nº</th><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
-          <tbody id="lista"><tr><td colspan="5" class="muted">Carregando…</td></tr></tbody>
+          <thead><tr><th>Nº</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
+          <tbody id="lista"><tr><td colspan="6" class="muted">Carregando…</td></tr></tbody>
         </table>
       </div>
     </section>
@@ -119,6 +119,7 @@
     const fmtId = (id) => '#' + String(id).padStart(4, '0');
     const fmtTel = (t) => t.length === 11 ? `(${t.slice(0,2)}) ${t.slice(2,7)}-${t.slice(7)}`
       : t.length === 10 ? `(${t.slice(0,2)}) ${t.slice(2,6)}-${t.slice(6)}` : t;
+    const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';
     const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR');
     let estado = { participantes: [], sorteios: [] };
 
@@ -137,16 +138,16 @@
       tbody.replaceChildren();
       const lista = estado.participantes.filter((p) => !termo
         || p.nome.toLowerCase().includes(termo)
-        || (termoNum && (p.telefone.includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
+        || (termoNum && (p.telefone.includes(termoNum) || (p.cpf || '').includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
       if (!lista.length) {
-        const tr = el('tr'); const td = el('td', 'Nenhum cadastro encontrado.', 'muted'); td.colSpan = 5;
+        const tr = el('tr'); const td = el('td', 'Nenhum cadastro encontrado.', 'muted'); td.colSpan = 6;
         tr.append(td); tbody.append(tr); return;
       }
       for (const p of lista) {
         const tr = el('tr');
         const nome = el('td', p.nome);
         if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag'));
-        tr.append(el('td', fmtId(p.id), 'num-col'), nome, el('td', fmtTel(p.telefone)),
+        tr.append(el('td', fmtId(p.id), 'num-col'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
           el('td', p.email || '—'), el('td', fmtData(p.criado_em)));
         tbody.append(tr);
       }
@@ -160,7 +161,7 @@
 
     async function carregar() {
       const res = await fetch('/api/admin/participantes');
-      if (!res.ok) { $('lista').innerHTML = '<tr><td colspan="5">Sessão expirada. Recarregue a página.</td></tr>'; return; }
+      if (!res.ok) { $('lista').innerHTML = '<tr><td colspan="6">Sessão expirada. Recarregue a página.</td></tr>'; return; }
       estado = await res.json();
       $('total').textContent = estado.total;
       const elegiveis = estado.total - estado.sorteios.length;
@@ -193,7 +194,7 @@
       const v = data.vencedor;
       $('v-num').textContent = fmtId(v.id);
       $('v-nome').textContent = v.nome;
-      $('v-contato').textContent = [fmtTel(v.telefone), v.email].filter(Boolean).join(' · ');
+      $('v-contato').textContent = ['CPF ' + fmtCpf(v.cpf), fmtTel(v.telefone), v.email].filter(Boolean).join(' · ');
       await carregar();
     }
 

@@ -150,6 +150,11 @@
         </div>
 
         <div class="field">
+          <label for="cpf">CPF</label>
+          <input type="text" id="cpf" name="cpf" inputmode="numeric" autocomplete="off" required placeholder="000.000.000-00">
+        </div>
+
+        <div class="field">
           <label for="telefone">WhatsApp / Telefone</label>
           <input type="tel" id="telefone" name="telefone" autocomplete="tel-national" inputmode="numeric" required placeholder="(00) 00000-0000">
         </div>
@@ -208,7 +213,7 @@
         ? `Você já está cadastrado${primeiroNome ? ', ' + primeiroNome : ''}!`
         : `Tudo certo${primeiroNome ? ', ' + primeiroNome : ''}!`;
       $('sucesso-msg').textContent = jaCadastrado
-        ? 'Este telefone já estava na lista. Seu número continua o mesmo.'
+        ? 'Este CPF já estava na lista. Seu número continua o mesmo.'
         : 'Seu cadastro foi confirmado e você já está concorrendo.';
       $('numero').textContent = formatId(id);
       $('form-card').hidden = true;
@@ -220,6 +225,22 @@
       $('erro').textContent = msg;
       $('erro').classList.toggle('show', !!msg);
     }
+
+    function cpfValido(cpf) {
+      if (!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
+      for (const len of [9, 10]) {
+        let soma = 0;
+        for (let i = 0; i < len; i++) soma += Number(cpf[i]) * (len + 1 - i);
+        if (((soma * 10) % 11) % 10 !== Number(cpf[len])) return false;
+      }
+      return true;
+    }
+
+    // Máscara de CPF: 000.000.000-00
+    $('cpf').addEventListener('input', (e) => {
+      const d = e.target.value.replace(/\D/g, '').slice(0, 11);
+      e.target.value = d.replace(/^(\d{3})(\d)/, '$1.$2').replace(/^(\d{3})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d{1,2})$/, '.$1-$2');
+    });
 
     // Máscara de telefone brasileiro: (00) 00000-0000
     $('telefone').addEventListener('input', (e) => {
@@ -234,10 +255,12 @@
       e.preventDefault();
       showError('');
       const nome = $('nome').value.trim();
+      const cpf = $('cpf').value.replace(/\D/g, '');
       const telefone = $('telefone').value.replace(/\D/g, '');
       const email = $('email').value.trim();
 
       if (nome.split(/\s+/).length < 2) return showError('Informe nome e sobrenome.');
+      if (!cpfValido(cpf)) return showError('Informe um CPF válido.');
       if (telefone.length < 10) return showError('Informe um telefone válido com DDD.');
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError('Informe um e-mail válido.');
       if (!$('aceite').checked) return showError('Marque a autorização para participar.');
@@ -249,7 +272,7 @@
         const res = await fetch('/api/cadastro', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nome, telefone, email, aceite: true, site: $('site').value }),
+          body: JSON.stringify({ nome, cpf, telefone, email, aceite: true, site: $('site').value }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.erro || 'Não foi possível concluir o cadastro.');

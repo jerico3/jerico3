@@ -24,7 +24,8 @@ db.exec(`
   CREATE TABLE IF NOT EXISTS participantes (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
     nome       TEXT NOT NULL,
-    telefone   TEXT NOT NULL UNIQUE,
+    cpf        TEXT NOT NULL UNIQUE,
+    telefone   TEXT NOT NULL,
     email      TEXT,
     criado_em  TEXT NOT NULL DEFAULT (datetime('now'))
   );
@@ -36,18 +37,18 @@ db.exec(`
 `);
 
 const q = {
-  insert: db.prepare('INSERT INTO participantes (nome, telefone, email) VALUES (?, ?, ?)'),
-  byPhone: db.prepare('SELECT id, nome FROM participantes WHERE telefone = ?'),
-  all: db.prepare('SELECT id, nome, telefone, email, criado_em FROM participantes ORDER BY id'),
+  insert: db.prepare('INSERT INTO participantes (nome, cpf, telefone, email) VALUES (?, ?, ?, ?)'),
+  byCpf: db.prepare('SELECT id, nome FROM participantes WHERE cpf = ?'),
+  all: db.prepare('SELECT id, nome, cpf, telefone, email, criado_em FROM participantes ORDER BY id'),
   count: db.prepare('SELECT COUNT(*) AS total FROM participantes'),
   eligible: db.prepare(`
     SELECT id FROM participantes
     WHERE id NOT IN (SELECT participante_id FROM sorteios)
     ORDER BY id`),
-  byId: db.prepare('SELECT id, nome, telefone, email, criado_em FROM participantes WHERE id = ?'),
+  byId: db.prepare('SELECT id, nome, cpf, telefone, email, criado_em FROM participantes WHERE id = ?'),
   insertDraw: db.prepare('INSERT INTO sorteios (participante_id) VALUES (?)'),
   draws: db.prepare(`
-    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.telefone, p.email
+    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email
     FROM sorteios s JOIN participantes p ON p.id = s.participante_id
     ORDER BY s.id`),
   clearDraws: db.prepare('DELETE FROM sorteios'),
@@ -135,18 +136,31 @@ function csvCell(v) {
 
 // ---------- validação ----------
 
+function cpfValido(cpf) {
+  if (!/^\d{11}$/.test(cpf) || /^(\d)\1{10}$/.test(cpf)) return false;
+  for (const len of [9, 10]) {
+    let soma = 0;
+    for (let i = 0; i < len; i++) soma += Number(cpf[i]) * (len + 1 - i);
+    const digito = ((soma * 10) % 11) % 10;
+    if (digito !== Number(cpf[len])) return false;
+  }
+  return true;
+}
+
 function normalize(body) {
   const nome = String(body.nome || '').trim().replace(/\s+/g, ' ');
+  const cpf = String(body.cpf || '').replace(/\D/g, '');
   const telefone = String(body.telefone || '').replace(/\D/g, '');
   const email = String(body.email || '').trim().toLowerCase();
   const errors = [];
   if (nome.length < 3 || nome.length > 120) errors.push('Informe seu nome completo.');
+  if (!cpfValido(cpf)) errors.push('Informe um CPF válido.');
   if (telefone.length < 10 || telefone.length > 13) errors.push('Informe um telefone válido com DDD.');
   if (email && (email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
     errors.push('Informe um e-mail válido.');
   }
   if (body.aceite !== true) errors.push('É preciso aceitar os termos para participar.');
-  return { nome, telefone, email: email || null, errors };
+  return { nome, cpf, telefone, email: email || null, errors };
 }
 
 // ---------- rotas ----------
@@ -170,16 +184,16 @@ const routes = {
     const data = normalize(body);
     if (data.errors.length) return json(res, 422, { erro: data.errors.join(' ') });
 
-    const existing = q.byPhone.get(data.telefone);
+    const existing = q.byCpf.get(data.cpf);
     if (existing) {
       return json(res, 200, { id: existing.id, nome: existing.nome, jaCadastrado: true });
     }
     try {
-      const r = q.insert.run(data.nome, data.telefone, data.email);
+      const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email);
       return json(res, 201, { id: Number(r.lastInsertRowid), nome: data.nome, jaCadastrado: false });
     } catch (e) {
-      // Corrida entre duas requisições com o mesmo telefone.
-      const again = q.byPhone.get(data.telefone);
+      // Corrida entre duas requisições com o mesmo CPF.
+      const again = q.byCpf.get(data.cpf);
       if (again) return json(res, 200, { id: again.id, nome: again.nome, jaCadastrado: true });
       throw e;
     }
@@ -193,8 +207,8 @@ const routes = {
   'GET /api/admin/participantes.csv': (req, res) => {
     if (!requireAdmin(req, res)) return;
     const rows = q.all.all();
-    const lines = [['id', 'nome', 'telefone', 'email', 'criado_em'].join(',')];
-    for (const r of rows) lines.push([r.id, r.nome, r.telefone, r.email, r.criado_em].map(csvCell).join(','));
+    const lines = [['id', 'nome', 'cpf', 'telefone', 'email', 'criado_em'].join(',')];
+    for (const r of rows) lines.push([r.id, r.nome, r.cpf, r.telefone, r.email, r.criado_em].map(csvCell).join(','));
     send(res, 200, '﻿' + lines.join('\r\n'), {
       'Content-Type': 'text/csv; charset=utf-8',
       'Content-Disposition': 'attachment; filename="participantes.csv"',

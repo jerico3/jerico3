@@ -29,14 +29,16 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 ## Funcionalidades
 
 **Página de cadastro (`/`)**
-- Nome, WhatsApp/telefone (com máscara), e-mail opcional e aceite de uso dos dados (LGPD).
+- Nome, CPF (validado pelos dígitos verificadores), WhatsApp/telefone (com máscara), e-mail opcional
+  e aceite de uso dos dados (LGPD).
 - Mostra o número da sorte logo após o cadastro.
-- Cada telefone se cadastra uma vez só: se repetir, a pessoa vê o mesmo número de antes.
+- Cada CPF se cadastra uma vez só: se repetir, a pessoa vê o mesmo número de antes. O telefone pode
+  se repetir (ex.: pessoas da mesma família).
 - O número fica salvo no navegador, então reabrir a página ou escanear o QR de novo mostra o número.
 - Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
 
 **Painel (`/admin`)**
-- Total de participantes, lista com busca e exportação CSV (abre direto no Excel).
+- Total de participantes, lista com busca (nome, CPF, telefone ou número) e exportação CSV (abre direto no Excel).
 - QR Code da página, com download da imagem e versão para impressão (botão **Imprimir**).
   Confira se o endereço no campo é o endereço público antes de imprimir.
 - **Sortear agora**: escolhe um ID aleatório entre os participantes ainda não sorteados
