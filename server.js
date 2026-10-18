@@ -10,6 +10,9 @@ const { DatabaseSync } = require('node:sqlite');
 const PORT = Number(process.env.PORT) || 3000;
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const EVENT_NAME = process.env.EVENT_NAME || 'Sorteio';
+const CODE_PREFIX = process.env.CODE_PREFIX ?? 'VW-';
+// Fuso usado para definir o "dia do cadastro" (cada evento sorteia só entre os cadastros do seu dia).
+const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'sorteio.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
@@ -19,16 +22,39 @@ if (!ADMIN_PASSWORD) {
 
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 const db = new DatabaseSync(DB_PATH);
+const PARTICIPANTES_SQL = (nome) => `
+  CREATE TABLE ${nome} (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    nome           TEXT NOT NULL,
+    cpf            TEXT NOT NULL,
+    telefone       TEXT NOT NULL,
+    email          TEXT,
+    data_cadastro  TEXT NOT NULL,
+    criado_em      TEXT NOT NULL DEFAULT (datetime('now')),
+    UNIQUE (cpf, data_cadastro)
+  )`;
+
+db.exec('PRAGMA journal_mode = WAL');
+const colunas = db.prepare('PRAGMA table_info(participantes)').all().map((c) => c.name);
+if (!colunas.length) {
+  db.exec(PARTICIPANTES_SQL('participantes'));
+} else if (!colunas.includes('data_cadastro')) {
+  // Banco de uma versão anterior (CPF único para sempre): passa a ser um cadastro por CPF por dia.
+  // As chaves estrangeiras precisam ficar desligadas durante a troca da tabela (fora da transação).
+  db.exec('PRAGMA foreign_keys = OFF');
+  db.exec(`
+    BEGIN;
+    ${PARTICIPANTES_SQL('participantes_novo')};
+    INSERT INTO participantes_novo (id, nome, cpf, telefone, email, data_cadastro, criado_em)
+      SELECT id, nome, cpf, telefone, email, date(criado_em, '-3 hours'), criado_em FROM participantes;
+    DROP TABLE participantes;
+    ALTER TABLE participantes_novo RENAME TO participantes;
+    COMMIT;
+  `);
+  db.exec('PRAGMA foreign_keys = ON');
+}
 db.exec(`
-  PRAGMA journal_mode = WAL;
-  CREATE TABLE IF NOT EXISTS participantes (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    nome       TEXT NOT NULL,
-    cpf        TEXT NOT NULL UNIQUE,
-    telefone   TEXT NOT NULL,
-    email      TEXT,
-    criado_em  TEXT NOT NULL DEFAULT (datetime('now'))
-  );
+  CREATE INDEX IF NOT EXISTS participantes_data ON participantes (data_cadastro);
   CREATE TABLE IF NOT EXISTS sorteios (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     participante_id INTEGER NOT NULL REFERENCES participantes(id),
@@ -37,18 +63,30 @@ db.exec(`
 `);
 
 const q = {
-  insert: db.prepare('INSERT INTO participantes (nome, cpf, telefone, email) VALUES (?, ?, ?, ?)'),
-  byCpf: db.prepare('SELECT id, nome FROM participantes WHERE cpf = ?'),
-  all: db.prepare('SELECT id, nome, cpf, telefone, email, criado_em FROM participantes ORDER BY id'),
-  count: db.prepare('SELECT COUNT(*) AS total FROM participantes'),
+  insert: db.prepare(`
+    INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro) VALUES (?, ?, ?, ?, ?)`),
+  byCpfDia: db.prepare('SELECT id, nome FROM participantes WHERE cpf = ? AND data_cadastro = ?'),
+  all: db.prepare(`
+    SELECT id, nome, cpf, telefone, email, data_cadastro, criado_em FROM participantes ORDER BY id`),
+  byDate: db.prepare(`
+    SELECT id, nome, cpf, telefone, email, data_cadastro, criado_em FROM participantes
+    WHERE data_cadastro = ? ORDER BY id`),
+  datas: db.prepare(`
+    SELECT data_cadastro AS data, COUNT(*) AS total FROM participantes
+    GROUP BY data_cadastro ORDER BY data_cadastro DESC`),
   eligible: db.prepare(`
     SELECT id FROM participantes
     WHERE id NOT IN (SELECT participante_id FROM sorteios)
     ORDER BY id`),
-  byId: db.prepare('SELECT id, nome, cpf, telefone, email, criado_em FROM participantes WHERE id = ?'),
+  eligibleByDate: db.prepare(`
+    SELECT id FROM participantes
+    WHERE data_cadastro = ? AND id NOT IN (SELECT participante_id FROM sorteios)
+    ORDER BY id`),
+  byId: db.prepare(`
+    SELECT id, nome, cpf, telefone, email, data_cadastro, criado_em FROM participantes WHERE id = ?`),
   insertDraw: db.prepare('INSERT INTO sorteios (participante_id) VALUES (?)'),
   draws: db.prepare(`
-    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email
+    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email, p.data_cadastro
     FROM sorteios s JOIN participantes p ON p.id = s.participante_id
     ORDER BY s.id`),
   clearDraws: db.prepare('DELETE FROM sorteios'),
@@ -134,6 +172,20 @@ function csvCell(v) {
   return `"${safe.replace(/"/g, '""')}"`;
 }
 
+// "AAAA-MM-DD" no fuso configurado.
+const formatoDia = new Intl.DateTimeFormat('en-CA', { timeZone: TIMEZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
+function hoje() {
+  return formatoDia.format(new Date());
+}
+
+function dataParam(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value || '') ? value : null;
+}
+
+function codigo(id) {
+  return CODE_PREFIX + String(id).padStart(4, '0');
+}
+
 // ---------- validação ----------
 
 function cpfValido(cpf) {
@@ -166,7 +218,7 @@ function normalize(body) {
 // ---------- rotas ----------
 
 const routes = {
-  'GET /api/config': (req, res) => json(res, 200, { evento: EVENT_NAME }),
+  'GET /api/config': (req, res) => json(res, 200, { evento: EVENT_NAME, prefixo: CODE_PREFIX, hoje: hoje() }),
 
   'POST /api/cadastro': async (req, res) => {
     if (rateLimited(clientIp(req))) {
@@ -184,40 +236,41 @@ const routes = {
     const data = normalize(body);
     if (data.errors.length) return json(res, 422, { erro: data.errors.join(' ') });
 
-    const existing = q.byCpf.get(data.cpf);
+    // Um cadastro por CPF por dia: quem volta em outro evento (outro dia) ganha um código novo.
+    const dia = hoje();
+    const existing = q.byCpfDia.get(data.cpf, dia);
     if (existing) {
-      return json(res, 200, { id: existing.id, nome: existing.nome, jaCadastrado: true });
+      return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true });
     }
-    try {
-      const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email);
-      return json(res, 201, { id: Number(r.lastInsertRowid), nome: data.nome, jaCadastrado: false });
-    } catch (e) {
-      // Corrida entre duas requisições com o mesmo CPF.
-      const again = q.byCpf.get(data.cpf);
-      if (again) return json(res, 200, { id: again.id, nome: again.nome, jaCadastrado: true });
-      throw e;
-    }
+    const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia);
+    return json(res, 201, { id: Number(r.lastInsertRowid), nome: data.nome, data_cadastro: dia, jaCadastrado: false });
   },
 
   'GET /api/admin/participantes': (req, res) => {
     if (!requireAdmin(req, res)) return;
-    json(res, 200, { total: q.count.get().total, participantes: q.all.all(), sorteios: q.draws.all() });
+    json(res, 200, { participantes: q.all.all(), sorteios: q.draws.all(), datas: q.datas.all(), hoje: hoje() });
   },
 
   'GET /api/admin/participantes.csv': (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const rows = q.all.all();
-    const lines = [['id', 'nome', 'cpf', 'telefone', 'email', 'criado_em'].join(',')];
-    for (const r of rows) lines.push([r.id, r.nome, r.cpf, r.telefone, r.email, r.criado_em].map(csvCell).join(','));
-    send(res, 200, '﻿' + lines.join('\r\n'), {
+    const dia = dataParam(new URL(req.url, 'http://localhost').searchParams.get('data'));
+    const rows = dia ? q.byDate.all(dia) : q.all.all();
+    const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'criado_em_utc'].join(',')];
+    for (const r of rows) {
+      lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, r.criado_em].map(csvCell).join(','));
+    }
+    send(res, 200, '\uFEFF' + lines.join('\r\n'), {
       'Content-Type': 'text/csv; charset=utf-8',
-      'Content-Disposition': 'attachment; filename="participantes.csv"',
+      'Content-Disposition': `attachment; filename="participantes${dia ? '-' + dia : ''}.csv"`,
     });
   },
 
-  'POST /api/admin/sortear': (req, res) => {
+  'POST /api/admin/sortear': async (req, res) => {
     if (!requireAdmin(req, res)) return;
-    const pool = q.eligible.all();
+    const body = await readJson(req).catch(() => ({}));
+    // Com "data", só concorrem os cadastros feitos naquele dia (o dia do evento).
+    const dia = dataParam(body.data);
+    const pool = dia ? q.eligibleByDate.all(dia) : q.eligible.all();
     if (!pool.length) return json(res, 409, { erro: 'Não há participantes elegíveis para sortear.' });
     // crypto.randomInt usa um gerador criptograficamente seguro e sem viés.
     const winnerId = pool[crypto.randomInt(pool.length)].id;

@@ -35,6 +35,7 @@
     .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
     #qr { background: #fff; padding: 12px; border-radius: 12px; display: inline-block; line-height: 0; }
     #qr img { width: 200px; height: 200px; image-rendering: pixelated; }
+    select { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: inherit; width: 100%; }
     input[type=url], input[type=search] { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: inherit; width: 100%; }
     .winner { text-align: center; padding: 16px; border: 2px dashed var(--accent); border-radius: 12px; margin-top: 16px; }
     .winner .num { font-size: 3.5rem; font-weight: 800; color: var(--primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
@@ -62,6 +63,12 @@
     <h1 id="titulo">Painel do sorteio</h1>
     <p class="sub">Acompanhe os cadastros, gere o QR Code e realize o sorteio dos brindes pelo código de cadastro.</p>
 
+    <section class="card" style="margin-bottom:16px">
+      <h2><label for="dia">Dia do evento</label></h2>
+      <select id="dia"></select>
+      <p class="muted" style="margin:8px 0 0">O sorteio, a contagem, a lista e o CSV consideram só os cadastros feitos no dia escolhido.</p>
+    </section>
+
     <div class="grid">
       <section class="card">
         <h2>Participantes</h2>
@@ -69,7 +76,7 @@
         <p class="muted" id="elegiveis"></p>
         <div class="row">
           <button id="atualizar">Atualizar</button>
-          <a class="btn" href="/api/admin/participantes.csv">Baixar CSV</a>
+          <a class="btn" id="csv" href="/api/admin/participantes.csv">Baixar CSV</a>
         </div>
       </section>
 
@@ -107,7 +114,7 @@
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
+          <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Data do cadastro</th></tr></thead>
           <tbody id="lista"><tr><td colspan="6" class="muted">Carregando…</td></tr></tbody>
         </table>
       </div>
@@ -116,12 +123,17 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const fmtId = (id) => String(id).padStart(4, '0');
+    let prefixo = 'VW-';
+    const fmtId = (id) => prefixo + String(id).padStart(4, '0');
+    const fmtDia = (d) => d.split('-').reverse().join('/');
     const fmtTel = (t) => t.length === 11 ? `(${t.slice(0,2)}) ${t.slice(2,7)}-${t.slice(7)}`
       : t.length === 10 ? `(${t.slice(0,2)}) ${t.slice(2,6)}-${t.slice(6)}` : t;
     const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';
     const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR');
-    let estado = { participantes: [], sorteios: [] };
+    let estado = { participantes: [], sorteios: [], datas: [] };
+    let diaEscolhido = null; // null = ainda não escolhido; '' = todas as datas
+
+    const doDia = (p) => !diaEscolhido || p.data_cadastro === diaEscolhido;
 
     function el(tag, text, cls) {
       const e = document.createElement(tag);
@@ -136,7 +148,7 @@
       const sorteados = new Set(estado.sorteios.map((s) => s.id));
       const tbody = $('lista');
       tbody.replaceChildren();
-      const lista = estado.participantes.filter((p) => !termo
+      const lista = estado.participantes.filter(doDia).filter((p) => !termo
         || p.nome.toLowerCase().includes(termo)
         || (termoNum && (p.telefone.includes(termoNum) || (p.cpf || '').includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
       if (!lista.length) {
@@ -149,24 +161,50 @@
         if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag'));
         tr.append(el('td', fmtId(p.id), 'num-col'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
           el('td', p.email || '—'), el('td', fmtData(p.criado_em)));
+        tr.title = `Evento de ${fmtDia(p.data_cadastro)}`;
         tbody.append(tr);
       }
     }
 
     function renderHistorico() {
       const ol = $('historico');
-      ol.replaceChildren(...estado.sorteios.map((s) =>
-        el('li', `${fmtId(s.id)} — ${s.nome} (${fmtData(s.sorteado_em)})`)));
+      ol.replaceChildren(...estado.sorteios.filter(doDia).map((s) =>
+        el('li', `${fmtId(s.id)} — ${s.nome} (evento de ${fmtDia(s.data_cadastro)}, sorteado em ${fmtData(s.sorteado_em)})`)));
     }
 
     async function carregar() {
       const res = await fetch('/api/admin/participantes');
       if (!res.ok) { $('lista').innerHTML = '<tr><td colspan="6">Sessão expirada. Recarregue a página.</td></tr>'; return; }
       estado = await res.json();
-      $('total').textContent = estado.total;
-      const elegiveis = estado.total - estado.sorteios.length;
-      $('elegiveis').textContent = `${elegiveis} elegíve${elegiveis === 1 ? 'l' : 'is'} para o próximo sorteio`;
+      if (diaEscolhido === null) {
+        // Começa no dia de hoje; se ainda não houver cadastros hoje, no dia mais recente.
+        const temHoje = estado.datas.some((d) => d.data === estado.hoje);
+        diaEscolhido = temHoje ? estado.hoje : (estado.datas[0]?.data || estado.hoje);
+      }
+      renderDias();
+      atualizarResumo();
+    }
+
+    function renderDias() {
+      const opcoes = estado.datas.map((d) => [d.data, `${fmtDia(d.data)} — ${d.total} cadastro${d.total === 1 ? '' : 's'}`]);
+      if (diaEscolhido && !estado.datas.some((d) => d.data === diaEscolhido)) {
+        opcoes.unshift([diaEscolhido, `${fmtDia(diaEscolhido)} — 0 cadastros`]);
+      }
+      opcoes.push(['', 'Todas as datas']);
+      $('dia').replaceChildren(...opcoes.map(([v, t]) => { const o = el('option', t); o.value = v; return o; }));
+      $('dia').value = diaEscolhido;
+    }
+
+    function atualizarResumo() {
+      const doEvento = estado.participantes.filter(doDia);
+      const sorteados = new Set(estado.sorteios.map((s) => s.id));
+      const elegiveis = doEvento.filter((p) => !sorteados.has(p.id)).length;
+      $('total').textContent = doEvento.length;
+      $('elegiveis').textContent = `${elegiveis} elegíve${elegiveis === 1 ? 'l' : 'is'} para o próximo sorteio`
+        + (diaEscolhido ? ` (cadastros de ${fmtDia(diaEscolhido)})` : ' (todas as datas)');
       $('sortear').disabled = elegiveis === 0;
+      $('sortear').textContent = diaEscolhido ? `🎲 Sortear entre os cadastros de ${fmtDia(diaEscolhido)}` : '🎲 Sortear entre todos';
+      $('csv').href = '/api/admin/participantes.csv' + (diaEscolhido ? `?data=${diaEscolhido}` : '');
       renderLista();
       renderHistorico();
     }
@@ -180,9 +218,13 @@
       $('v-nome').textContent = 'Sorteando…';
       $('v-contato').textContent = '';
 
-      const req = fetch('/api/admin/sortear', { method: 'POST' }).then(async (r) => ({ ok: r.ok, data: await r.json() }));
-      // Animação de "roleta" com os números cadastrados enquanto o servidor sorteia.
-      const ids = estado.participantes.map((p) => p.id);
+      const req = fetch('/api/admin/sortear', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: diaEscolhido || null }),
+      }).then(async (r) => ({ ok: r.ok, data: await r.json() }));
+      // Animação de "roleta" com os códigos do dia enquanto o servidor sorteia.
+      const ids = estado.participantes.filter(doDia).map((p) => p.id);
       const fim = Date.now() + 2500;
       while (Date.now() < fim && ids.length) {
         $('v-num').textContent = fmtId(ids[Math.floor(Math.random() * ids.length)]);
@@ -194,7 +236,7 @@
       const v = data.vencedor;
       $('v-num').textContent = fmtId(v.id);
       $('v-nome').textContent = v.nome;
-      $('v-contato').textContent = ['CPF ' + fmtCpf(v.cpf), fmtTel(v.telefone), v.email].filter(Boolean).join(' · ');
+      $('v-contato').textContent = ['CPF ' + fmtCpf(v.cpf), fmtTel(v.telefone), v.email, `cadastro em ${fmtDia(v.data_cadastro)}`].filter(Boolean).join(' · ');
       await carregar();
     }
 
@@ -223,16 +265,16 @@
     $('sortear').onclick = sortear;
     $('reiniciar').onclick = reiniciar;
     $('busca').oninput = renderLista;
+    $('dia').onchange = () => { diaEscolhido = $('dia').value; $('vencedor').hidden = true; atualizarResumo(); };
     $('qr-url').oninput = gerarQr;
     $('qr-url').value = location.origin + '/';
 
-    fetch('/api/config').then((r) => r.json()).then(({ evento }) => {
-      $('titulo').textContent = `Painel · ${evento}`;
-      $('qr-titulo').textContent = evento;
-    }).catch(() => {});
-
     gerarQr();
-    carregar();
+    fetch('/api/config').then((r) => r.json()).then((cfg) => {
+      if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
+      $('titulo').textContent = `Painel · ${cfg.evento}`;
+      $('qr-titulo').textContent = cfg.evento;
+    }).catch(() => {}).finally(carregar);
     setInterval(carregar, 15000);
   </script>
 </body>
