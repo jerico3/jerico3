@@ -156,11 +156,11 @@ function normalize(body) {
   if (nome.length < 3 || nome.length > 120) errors.push('Informe seu nome completo.');
   if (!cpfValido(cpf)) errors.push('Informe um CPF válido.');
   if (telefone.length < 10 || telefone.length > 13) errors.push('Informe um telefone válido com DDD.');
-  if (email && (email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) {
+  if (email.length > 160 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     errors.push('Informe um e-mail válido.');
   }
   if (body.aceite !== true) errors.push('É preciso aceitar os termos para participar.');
-  return { nome, cpf, telefone, email: email || null, errors };
+  return { nome, cpf, telefone, email, errors };
 }
 
 // ---------- rotas ----------
@@ -243,6 +243,9 @@ const MIME = {
   '.js': 'text/javascript; charset=utf-8',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
   '.ico': 'image/x-icon',
 };
 

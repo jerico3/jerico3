@@ -9,11 +9,11 @@
   <style>
     :root {
       --bg: #f8fafc; --card: #fff; --text: #0f172a; --muted: #64748b;
-      --border: #e2e8f0; --primary: #6d28d9; --primary-dark: #5b21b6;
-      --accent: #f59e0b; --danger: #b91c1c;
+      --border: #e2e8f0; --primary: #001e50; --primary-dark: #000f2b;
+      --accent: #00b0f0; --danger: #b91c1c;
     }
     @media (prefers-color-scheme: dark) {
-      :root { --bg: #0b0f1a; --card: #131a2a; --text: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --primary: #8b5cf6; --primary-dark: #7c3aed; --danger: #fca5a5; }
+      :root { --bg: #0b0f1a; --card: #131a2a; --text: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --primary: #1f6fd1; --primary-dark: #1a5fb4; --danger: #fca5a5; }
     }
     * { box-sizing: border-box; }
     body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
@@ -45,7 +45,7 @@
     th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
     td.num-col { font-variant-numeric: tabular-nums; font-weight: 700; }
     .table-wrap { overflow-x: auto; }
-    .tag { display: inline-block; background: var(--accent); color: #1f1300; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+    .tag { display: inline-block; background: var(--accent); color: #001e50; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
     .muted { color: var(--muted); }
     ol.draws { margin: 12px 0 0; padding-left: 20px; }
     @media print {
@@ -60,7 +60,7 @@
 <body>
   <div class="wrap">
     <h1 id="titulo">Painel do sorteio</h1>
-    <p class="sub">Acompanhe os cadastros, gere o QR Code e realize o sorteio pelo número de cadastro.</p>
+    <p class="sub">Acompanhe os cadastros, gere o QR Code e realize o sorteio dos brindes pelo código de cadastro.</p>
 
     <div class="grid">
       <section class="card">
@@ -80,7 +80,7 @@
           <button class="danger" id="reiniciar" title="Apaga o histórico de sorteados">Reiniciar</button>
         </div>
         <div class="winner" id="vencedor" hidden>
-          <div class="muted">Número sorteado</div>
+          <div class="muted">Código sorteado</div>
           <div class="num" id="v-num"></div>
           <div class="name" id="v-nome"></div>
           <div class="muted" id="v-contato"></div>
@@ -103,11 +103,11 @@
     <section class="card">
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
         <h2 style="margin:0">Lista de cadastros</h2>
-        <input type="search" id="busca" placeholder="Buscar por nome, CPF, telefone ou número" style="max-width:320px">
+        <input type="search" id="busca" placeholder="Buscar por código, nome, CPF ou telefone" style="max-width:320px">
       </div>
       <div class="table-wrap">
         <table>
-          <thead><tr><th>Nº</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
+          <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
           <tbody id="lista"><tr><td colspan="6" class="muted">Carregando…</td></tr></tbody>
         </table>
       </div>
@@ -116,7 +116,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    const fmtId = (id) => '#' + String(id).padStart(4, '0');
+    const fmtId = (id) => String(id).padStart(4, '0');
     const fmtTel = (t) => t.length === 11 ? `(${t.slice(0,2)}) ${t.slice(2,7)}-${t.slice(7)}`
       : t.length === 10 ? `(${t.slice(0,2)}) ${t.slice(2,6)}-${t.slice(6)}` : t;
     const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';

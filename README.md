@@ -1,8 +1,13 @@
 # Cadastro para sorteio (via QR Code)
 
-Landing page mobile para cadastrar participantes de um sorteio. Cada pessoa recebe na hora o
-**número da sorte**, que é o próprio ID do cadastro (`#0001`, `#0002`, …). Um painel administrativo
-mostra a lista, exporta CSV, gera o QR Code da página e faz o sorteio pelo ID.
+Landing page mobile para cadastrar participantes do sorteio de brindes da importadora. Cada pessoa
+recebe na hora um **código**, que é o próprio ID do cadastro (`0001`, `0002`, …). Um painel
+administrativo mostra a lista, exporta CSV, gera o QR Code da página e faz o sorteio pelo código.
+
+## Logo
+
+Coloque a logo da importadora em `public/logo.png` (PNG com fundo transparente fica melhor, já que o
+topo da página é azul-escuro). Sem esse arquivo, a página mostra o `EVENT_NAME` no lugar da logo.
 
 Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`node:sqlite`).
 
@@ -29,19 +34,20 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 ## Funcionalidades
 
 **Página de cadastro (`/`)**
-- Nome, CPF (validado pelos dígitos verificadores), WhatsApp/telefone (com máscara), e-mail opcional
-  e aceite de uso dos dados (LGPD).
-- Mostra o número da sorte logo após o cadastro.
-- Cada CPF se cadastra uma vez só: se repetir, a pessoa vê o mesmo número de antes. O telefone pode
+- Logo no topo e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
+- Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
+  obrigatórios, além do aceite de uso dos dados (LGPD).
+- Ao clicar em **Enviar**, a pessoa recebe o seu código.
+- Cada CPF se cadastra uma vez só: se repetir, a pessoa vê o mesmo código de antes. O telefone pode
   se repetir (ex.: pessoas da mesma família).
-- O número fica salvo no navegador, então reabrir a página ou escanear o QR de novo mostra o número.
+- O código fica salvo no navegador, então reabrir a página ou escanear o QR de novo mostra o código.
 - Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
 
 **Painel (`/admin`)**
-- Total de participantes, lista com busca (nome, CPF, telefone ou número) e exportação CSV (abre direto no Excel).
+- Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
 - QR Code da página, com download da imagem e versão para impressão (botão **Imprimir**).
   Confira se o endereço no campo é o endereço público antes de imprimir.
-- **Sortear agora**: escolhe um ID aleatório entre os participantes ainda não sorteados
+- **Sortear agora**: escolhe um código aleatório entre os participantes ainda não sorteados
   (gerador criptográfico `crypto.randomInt`), com animação de roleta. Os sorteados ficam no
   histórico e não concorrem de novo; **Reiniciar** limpa o histórico.
 
