@@ -3,137 +3,353 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Admin do sorteio</title>
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎲</text></svg>">
+  <meta name="robots" content="noindex">
+  <title>Painel do sorteio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="/vendor/qrcode.js"></script>
   <style>
     :root {
-      --bg: #f8fafc; --card: #fff; --text: #0f172a; --muted: #64748b;
-      --border: #e2e8f0; --primary: #001e50; --primary-dark: #000f2b;
-      --accent: #00b0f0; --danger: #b91c1c;
-    }
-    @media (prefers-color-scheme: dark) {
-      :root { --bg: #0b0f1a; --card: #131a2a; --text: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --primary: #1f6fd1; --primary-dark: #1a5fb4; --danger: #fca5a5; }
+      --navy: #011250; --navy-2: #0a1a80; --accent: #8aa0ff; --accent-soft: #eef1fb;
+      --bg: #f4f6fa; --card: #fff; --text: #0f172a; --muted: #64748b; --border: #e3e8ef;
+      --danger: #b91c1c; --danger-soft: #fdecec;
     }
     * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
-    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
-    h1 { margin: 0 0 4px; font-size: 1.6rem; }
-    .sub { color: var(--muted); margin: 0 0 24px; }
-    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-bottom: 16px; }
-    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
-    .card h2 { margin: 0 0 12px; font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-    .big { font-size: 3rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
-    button, .btn {
-      display: inline-block; font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px;
-      border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; text-decoration: none;
+    html, body { margin: 0; }
+    body { font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; font-size: 15px; }
+    [hidden] { display: none !important; }
+
+    /* ---------- topo ---------- */
+    .topbar { background: var(--navy); color: #fff; }
+    .topbar-inner { max-width: 1200px; margin: 0 auto; padding: 14px 16px 0; }
+    .linha1 { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+    .marca strong { display: block; font-size: 1.05rem; }
+    .marca span { font-size: .82rem; opacity: .7; }
+    .conta { display: flex; align-items: center; gap: 10px; font-size: .88rem; flex-wrap: wrap; }
+    .conta .nome { font-weight: 600; }
+    .papel { font-size: .7rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em; background: rgba(255,255,255,.14); padding: 2px 8px; border-radius: 999px; }
+    .link-topo { background: none; border: 1px solid rgba(255,255,255,.25); color: #fff; font: inherit; font-size: .82rem; padding: 6px 12px; border-radius: 8px; cursor: pointer; }
+    .link-topo:hover { background: rgba(255,255,255,.1); }
+    nav { display: flex; gap: 4px; margin-top: 14px; overflow-x: auto; scrollbar-width: none; }
+    nav button {
+      background: none; border: 0; color: rgba(255,255,255,.7); font: inherit; font-weight: 600; font-size: .9rem;
+      padding: 10px 14px; border-bottom: 3px solid transparent; cursor: pointer; white-space: nowrap;
     }
-    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
-    button.primary:hover { background: var(--primary-dark); }
-    button.danger { color: var(--danger); }
-    button:disabled { opacity: .5; cursor: not-allowed; }
-    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-    #qr { background: #fff; padding: 12px; border-radius: 12px; display: inline-block; line-height: 0; }
-    #qr img { width: 200px; height: 200px; image-rendering: pixelated; }
-    select { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--card); color: inherit; width: 100%; }
-    input[type=url], input[type=search] { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: inherit; width: 100%; }
-    .winner { text-align: center; padding: 16px; border: 2px dashed var(--accent); border-radius: 12px; margin-top: 16px; }
-    .winner .num { font-size: 3.5rem; font-weight: 800; color: var(--primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
-    .winner .name { font-size: 1.3rem; font-weight: 700; }
-    .rolling .num { opacity: .6; }
-    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
-    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
-    th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
-    td.num-col { font-variant-numeric: tabular-nums; font-weight: 700; }
-    .table-wrap { overflow-x: auto; }
-    .tag { display: inline-block; background: var(--accent); color: #001e50; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+    nav button:hover { color: #fff; }
+    nav button[aria-selected="true"] { color: #fff; border-bottom-color: var(--accent); }
+
+    /* ---------- conteúdo ---------- */
+    main { max-width: 1200px; margin: 0 auto; padding: 20px 16px 48px; }
+    .barra-dia { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; margin-bottom: 16px; }
+    .barra-dia label { font-weight: 700; font-size: .88rem; }
+    .barra-dia .dica { color: var(--muted); font-size: .82rem; }
+    select, input[type=text], input[type=email], input[type=tel], input[type=password], input[type=url], input[type=search] {
+      font: inherit; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border); background: #fff; color: inherit; min-height: 40px;
+    }
+    select:focus, input:focus { outline: none; border-color: var(--navy-2); box-shadow: 0 0 0 3px rgba(10,26,128,.12); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+    .card h2 { margin: 0 0 14px; font-size: 1rem; }
+    .cab { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .cab h2 { margin: 0; }
+    .stats { display: grid; gap: 16px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 16px; }
+    @media (max-width: 600px) {
+      .stats { gap: 8px; }
+      .stat { padding: 12px; }
+      .stat span { font-size: .72rem; }
+      .stat strong { font-size: 1.5rem; }
+    }
+    .stat { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 16px 20px; }
+    .stat span { color: var(--muted); font-size: .82rem; font-weight: 600; }
+    .stat strong { display: block; font-size: 2rem; font-weight: 800; line-height: 1.2; font-variant-numeric: tabular-nums; }
+    .grid2 { display: grid; gap: 16px; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); }
+    @media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+
+    .btn { display: inline-flex; align-items: center; gap: 6px; font: inherit; font-weight: 600; font-size: .9rem; padding: 9px 14px; border-radius: 9px; border: 1px solid var(--border); background: #fff; color: var(--text); cursor: pointer; text-decoration: none; min-height: 40px; }
+    .btn:hover { background: #f8fafc; }
+    .btn.primario { background: var(--navy-2); border-color: var(--navy-2); color: #fff; }
+    .btn.primario:hover { background: var(--navy); }
+    .btn.perigo { color: var(--danger); }
+    .btn.perigo.cheio { background: var(--danger); border-color: var(--danger); color: #fff; }
+    .btn.pequeno { padding: 5px 10px; min-height: 32px; font-size: .82rem; }
+    .btn:disabled { opacity: .5; cursor: not-allowed; }
+    .btn-sortear { width: 100%; justify-content: center; font-size: 1.05rem; padding: 14px; }
+
+    .palco { text-align: center; padding: 28px 16px; margin-top: 16px; border-radius: 14px; background: var(--navy); color: #fff; }
+    .palco small { text-transform: uppercase; letter-spacing: .1em; font-weight: 700; opacity: .7; font-size: .75rem; }
+    .palco .num { font-size: clamp(2.6rem, 8vw, 4rem); font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+    .palco .nome { font-size: 1.3rem; font-weight: 700; }
+    .palco .contato { opacity: .75; font-size: .88rem; margin-top: 4px; }
+    .palco.girando .num { opacity: .55; }
+    ol.historico { margin: 0; padding-left: 22px; }
+    ol.historico li { padding: 6px 0; border-bottom: 1px solid var(--border); }
+    ol.historico li:last-child { border-bottom: 0; }
+    ol.historico .quando { color: var(--muted); font-size: .82rem; display: block; }
+
+    .tabela { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; }
+    th, td { text-align: left; padding: 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; font-size: .75rem; text-transform: uppercase; letter-spacing: .05em; background: #fafbfd; }
+    td.codigo { font-weight: 700; font-variant-numeric: tabular-nums; }
+    td.acoes { text-align: right; }
+    td.acoes .btn + .btn { margin-left: 6px; }
+    td.quebra { white-space: normal; min-width: 260px; }
+    .vazio { color: var(--muted); text-align: center; padding: 28px; }
+    .tag { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
+    .tag.sorteado { background: var(--accent); color: var(--navy); }
+    .tag.admin { background: var(--accent-soft); color: var(--navy-2); }
+    .tag.operador { background: #f1f5f9; color: #475569; }
+    .tag.perfil { margin-left: 0; margin-right: 6px; }
+    .tag.inativo { background: var(--danger-soft); color: var(--danger); }
     .muted { color: var(--muted); }
-    ol.draws { margin: 12px 0 0; padding-left: 20px; }
+
+    #qr { background: #fff; padding: 12px; border: 1px solid var(--border); border-radius: 12px; display: inline-block; line-height: 0; }
+    #qr img { width: 220px; height: 220px; image-rendering: pixelated; }
+
+    /* ---------- diálogos ---------- */
+    dialog { border: 0; border-radius: 16px; padding: 0; width: min(480px, calc(100vw - 32px)); box-shadow: 0 30px 80px rgba(0,0,0,.3); }
+    dialog::backdrop { background: rgba(1, 18, 80, .45); }
+    dialog form { padding: 22px; }
+    dialog h3 { margin: 0 0 16px; font-size: 1.1rem; }
+    .campo { margin-bottom: 14px; }
+    .campo label { display: block; font-size: .82rem; font-weight: 600; margin-bottom: 5px; color: #334155; }
+    .campo input, .campo select { width: 100%; }
+    .campo .ajuda { color: var(--muted); font-size: .78rem; margin-top: 4px; }
+    .check { display: flex; gap: 8px; align-items: center; font-size: .9rem; }
+    .rodape-dlg { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
+    .erro-dlg { display: none; background: var(--danger-soft); color: var(--danger); padding: 9px 12px; border-radius: 9px; font-size: .86rem; margin-bottom: 14px; }
+    .erro-dlg.show { display: block; }
+
+    .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(20px); background: #0f172a; color: #fff; padding: 11px 18px; border-radius: 10px; font-size: .9rem; opacity: 0; pointer-events: none; transition: .2s; z-index: 10; max-width: calc(100vw - 32px); }
+    .toast.show { opacity: 1; transform: translateX(-50%); }
+    .toast.erro { background: var(--danger); }
+
     @media print {
       body * { visibility: hidden; }
-      #qr-card, #qr-card * { visibility: visible; }
-      #qr-card { position: absolute; inset: 0; border: 0; text-align: center; }
-      #qr-card .row, #qr-card input { display: none; }
-      #qr img { width: 360px; height: 360px; }
+      #qr-print, #qr-print * { visibility: visible; }
+      #qr-print { position: absolute; inset: 0; border: 0; text-align: center; padding-top: 40px; }
+      #qr-print .nao-imprimir { display: none; }
+      #qr img { width: 380px; height: 380px; }
     }
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <h1 id="titulo">Painel do sorteio</h1>
-    <p class="sub">Acompanhe os cadastros, gere o QR Code e realize o sorteio dos brindes pelo código de cadastro.</p>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="linha1">
+        <div class="marca"><strong>Painel do sorteio</strong><span id="evento"></span></div>
+        <div class="conta">
+          <span class="nome" id="me-nome"></span><span class="papel" id="me-papel"></span>
+          <button class="link-topo" id="abrir-senha">Alterar senha</button>
+          <button class="link-topo" id="sair">Sair</button>
+        </div>
+      </div>
+      <nav role="tablist">
+        <button role="tab" data-aba="sorteio" aria-selected="true">Sorteio</button>
+        <button role="tab" data-aba="cadastros">Cadastros</button>
+        <button role="tab" data-aba="qr">QR Code</button>
+        <button role="tab" data-aba="usuarios" class="so-admin" hidden>Usuários</button>
+        <button role="tab" data-aba="atividade" class="so-admin" hidden>Atividade</button>
+      </nav>
+    </div>
+  </header>
 
-    <section class="card" style="margin-bottom:16px">
-      <h2><label for="dia">Dia do evento</label></h2>
+  <main>
+    <div class="barra-dia" id="barra-dia">
+      <label for="dia">Dia do evento</label>
       <select id="dia"></select>
-      <p class="muted" style="margin:8px 0 0">O sorteio, a contagem, a lista e o CSV consideram só os cadastros feitos no dia escolhido.</p>
-    </section>
-
-    <div class="grid">
-      <section class="card">
-        <h2>Participantes</h2>
-        <div class="big" id="total">–</div>
-        <p class="muted" id="elegiveis"></p>
-        <div class="row">
-          <button id="atualizar">Atualizar</button>
-          <a class="btn" id="csv" href="/api/admin/participantes.csv">Baixar CSV</a>
-        </div>
-      </section>
-
-      <section class="card">
-        <h2>Sorteio</h2>
-        <div class="row">
-          <button class="primary" id="sortear">🎲 Sortear agora</button>
-          <button class="danger" id="reiniciar" title="Apaga o histórico de sorteados">Reiniciar</button>
-        </div>
-        <div class="winner" id="vencedor" hidden>
-          <div class="muted">Código sorteado</div>
-          <div class="num" id="v-num"></div>
-          <div class="name" id="v-nome"></div>
-          <div class="muted" id="v-contato"></div>
-        </div>
-        <ol class="draws" id="historico"></ol>
-      </section>
-
-      <section class="card" id="qr-card">
-        <h2>QR Code da página</h2>
-        <div id="qr"></div>
-        <p style="margin:12px 0 8px"><strong id="qr-titulo"></strong><br><span class="muted">Escaneie para participar</span></p>
-        <input type="url" id="qr-url" aria-label="Endereço do QR Code">
-        <div class="row" style="margin-top:8px">
-          <a class="btn" id="baixar-qr" download="qrcode-sorteio.gif">Baixar imagem</a>
-          <button onclick="window.print()">Imprimir</button>
-        </div>
-      </section>
+      <span class="dica">O sorteio, a lista e o CSV consideram só os cadastros feitos nesse dia.</span>
     </div>
 
-    <section class="card">
-      <div class="row" style="justify-content:space-between;margin-bottom:12px">
-        <h2 style="margin:0">Lista de cadastros</h2>
-        <input type="search" id="busca" placeholder="Buscar por código, nome, CPF ou telefone" style="max-width:320px">
+    <!-- Sorteio -->
+    <section data-painel="sorteio">
+      <div class="stats">
+        <div class="stat"><span>Cadastros no dia</span><strong id="st-total">–</strong></div>
+        <div class="stat"><span>Concorrendo</span><strong id="st-elegiveis">–</strong></div>
+        <div class="stat"><span>Já sorteados</span><strong id="st-sorteados">–</strong></div>
       </div>
-      <div class="table-wrap">
-        <table>
-          <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Data do cadastro</th></tr></thead>
-          <tbody id="lista"><tr><td colspan="6" class="muted">Carregando…</td></tr></tbody>
-        </table>
+      <div class="grid2">
+        <div class="card">
+          <h2>Realizar sorteio</h2>
+          <button class="btn primario btn-sortear" id="sortear">Sortear</button>
+          <div class="palco" id="palco" hidden>
+            <small>Código sorteado</small>
+            <div class="num" id="v-num"></div>
+            <div class="nome" id="v-nome"></div>
+            <div class="contato" id="v-contato"></div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="cab">
+            <h2>Sorteados no dia</h2>
+            <button class="btn perigo pequeno so-admin" id="reiniciar" hidden title="Apaga o histórico de sorteados de todos os dias">Reiniciar histórico</button>
+          </div>
+          <ol class="historico" id="historico"></ol>
+          <p class="muted" id="historico-vazio">Ninguém sorteado ainda.</p>
+        </div>
       </div>
     </section>
-  </div>
+
+    <!-- Cadastros -->
+    <section data-painel="cadastros" hidden>
+      <div class="card">
+        <div class="cab">
+          <h2 id="titulo-lista">Cadastros</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="search" id="busca" placeholder="Buscar por código, nome, CPF ou telefone" style="width:300px;max-width:100%">
+            <a class="btn" id="csv" href="/api/admin/participantes.csv">Baixar CSV</a>
+          </div>
+        </div>
+        <div class="tabela">
+          <table>
+            <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastrado em</th><th></th></tr></thead>
+            <tbody id="lista"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- QR Code -->
+    <section data-painel="qr" hidden>
+      <div class="card" id="qr-print">
+        <h2>QR Code da página de cadastro</h2>
+        <div id="qr"></div>
+        <p style="margin:12px 0"><strong>Escaneie para participar do sorteio</strong></p>
+        <div class="nao-imprimir">
+          <div class="campo" style="max-width:480px">
+            <label for="qr-url">Endereço do QR Code</label>
+            <input type="url" id="qr-url">
+            <div class="ajuda">Confira se é o endereço público do site antes de imprimir.</div>
+          </div>
+          <div style="display:flex;gap:8px">
+            <a class="btn" id="baixar-qr" download="qrcode-sorteio.gif">Baixar imagem</a>
+            <button class="btn" onclick="window.print()">Imprimir</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Usuários -->
+    <section data-painel="usuarios" hidden>
+      <div class="card">
+        <div class="cab">
+          <h2>Usuários do painel</h2>
+          <button class="btn primario" id="novo-usuario">Novo usuário</button>
+        </div>
+        <p class="muted" style="margin-top:-6px">
+          <strong>Administrador</strong>: tudo, inclusive excluir cadastros e gerenciar usuários.
+          <strong>Operador</strong>: vê e edita cadastros e faz sorteios.
+        </p>
+        <div class="tabela">
+          <table>
+            <thead><tr><th>Nome</th><th>E-mail</th><th>Perfil</th><th>Criado em</th><th></th></tr></thead>
+            <tbody id="usuarios"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Atividade -->
+    <section data-painel="atividade" hidden>
+      <div class="card">
+        <div class="cab">
+          <h2>Atividade recente</h2>
+          <button class="btn" id="atualizar-atividade">Atualizar</button>
+        </div>
+        <div class="tabela">
+          <table>
+            <thead><tr><th>Quando</th><th>Usuário</th><th>Ação</th><th>Detalhes</th></tr></thead>
+            <tbody id="atividade"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Diálogos -->
+  <dialog id="dlg-cadastro">
+    <form method="dialog" id="form-cadastro" novalidate>
+      <h3 id="dlg-cadastro-titulo">Editar cadastro</h3>
+      <div class="erro-dlg"></div>
+      <div class="campo"><label for="c-nome">Nome completo</label><input type="text" id="c-nome" required></div>
+      <div class="campo"><label for="c-telefone">Telefone</label><input type="tel" id="c-telefone" required></div>
+      <div class="campo"><label for="c-cpf">CPF</label><input type="text" id="c-cpf" inputmode="numeric" required></div>
+      <div class="campo"><label for="c-email">E-mail</label><input type="email" id="c-email" required></div>
+      <p class="muted" id="c-dia" style="font-size:.85rem;margin:0"></p>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-usuario">
+    <form method="dialog" id="form-usuario" novalidate>
+      <h3 id="dlg-usuario-titulo">Novo usuário</h3>
+      <div class="erro-dlg"></div>
+      <div class="campo"><label for="u-nome">Nome</label><input type="text" id="u-nome" required></div>
+      <div class="campo"><label for="u-email">E-mail (usado para entrar)</label><input type="email" id="u-email" required></div>
+      <div class="campo">
+        <label for="u-papel">Perfil</label>
+        <select id="u-papel"><option value="operador">Operador</option><option value="admin">Administrador</option></select>
+      </div>
+      <div class="campo">
+        <label for="u-senha" id="u-senha-label">Senha</label>
+        <input type="password" id="u-senha" autocomplete="new-password">
+        <div class="ajuda" id="u-senha-ajuda"></div>
+      </div>
+      <label class="check" id="u-ativo-linha"><input type="checkbox" id="u-ativo"> Usuário ativo (pode entrar no painel)</label>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-senha">
+    <form method="dialog" id="form-senha" novalidate>
+      <h3>Alterar minha senha</h3>
+      <div class="erro-dlg"></div>
+      <div class="campo"><label for="s-atual">Senha atual</label><input type="password" id="s-atual" autocomplete="current-password"></div>
+      <div class="campo"><label for="s-nova">Nova senha</label><input type="password" id="s-nova" autocomplete="new-password"><div class="ajuda">Mínimo de 8 caracteres.</div></div>
+      <div class="campo"><label for="s-conf">Confirme a nova senha</label><input type="password" id="s-conf" autocomplete="new-password"></div>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-confirmar">
+    <form method="dialog">
+      <h3 id="conf-titulo"></h3>
+      <p id="conf-texto" style="margin:0;color:#334155"></p>
+      <div class="rodape-dlg">
+        <button value="nao" class="btn">Cancelar</button>
+        <button value="sim" class="btn perigo cheio" id="conf-ok">Confirmar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
 
   <script>
     const $ = (id) => document.getElementById(id);
     let prefixo = 'VW-';
+    let eu = null;
+    let estado = { participantes: [], sorteios: [], datas: [], hoje: '' };
+    let diaEscolhido = null; // null = ainda não escolhido; '' = todas as datas
+    let abaAtual = 'sorteio';
+
     const fmtId = (id) => prefixo + String(id).padStart(4, '0');
-    const fmtDia = (d) => d.split('-').reverse().join('/');
     const fmtTel = (t) => t.length === 11 ? `(${t.slice(0,2)}) ${t.slice(2,7)}-${t.slice(7)}`
       : t.length === 10 ? `(${t.slice(0,2)}) ${t.slice(2,6)}-${t.slice(6)}` : t;
     const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';
-    const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR');
-    let estado = { participantes: [], sorteios: [], datas: [] };
-    let diaEscolhido = null; // null = ainda não escolhido; '' = todas as datas
-
+    const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+    const fmtDia = (d) => d.split('-').reverse().join('/');
     const doDia = (p) => !diaEscolhido || p.data_cadastro === diaEscolhido;
+    const ehAdmin = () => eu && eu.papel === 'admin';
 
     function el(tag, text, cls) {
       const e = document.createElement(tag);
@@ -142,87 +358,154 @@
       return e;
     }
 
-    function renderLista() {
-      const termo = $('busca').value.trim().toLowerCase();
-      const termoNum = termo.replace(/\D/g, '');
-      const sorteados = new Set(estado.sorteios.map((s) => s.id));
-      const tbody = $('lista');
-      tbody.replaceChildren();
-      const lista = estado.participantes.filter(doDia).filter((p) => !termo
-        || p.nome.toLowerCase().includes(termo)
-        || (termoNum && (p.telefone.includes(termoNum) || (p.cpf || '').includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
-      if (!lista.length) {
-        const tr = el('tr'); const td = el('td', 'Nenhum cadastro encontrado.', 'muted'); td.colSpan = 6;
-        tr.append(td); tbody.append(tr); return;
-      }
-      for (const p of lista) {
-        const tr = el('tr');
-        const nome = el('td', p.nome);
-        if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag'));
-        tr.append(el('td', fmtId(p.id), 'num-col'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
-          el('td', p.email || '—'), el('td', fmtData(p.criado_em)));
-        tr.title = `Evento de ${fmtDia(p.data_cadastro)}`;
-        tbody.append(tr);
-      }
+    function botao(texto, cls, onclick) {
+      const b = el('button', texto, 'btn pequeno ' + (cls || ''));
+      b.type = 'button';
+      b.onclick = onclick;
+      return b;
     }
 
-    function renderHistorico() {
-      const ol = $('historico');
-      ol.replaceChildren(...estado.sorteios.filter(doDia).map((s) =>
-        el('li', `${fmtId(s.id)} — ${s.nome} (evento de ${fmtDia(s.data_cadastro)}, sorteado em ${fmtData(s.sorteado_em)})`)));
+    function linhaVazia(tbody, colunas, texto) {
+      const tr = el('tr'); const td = el('td', texto, 'vazio'); td.colSpan = colunas;
+      tr.append(td); tbody.replaceChildren(tr);
     }
+
+    let toastTimer;
+    function toast(msg, erro = false) {
+      const t = $('toast');
+      t.textContent = msg;
+      t.classList.toggle('erro', erro);
+      t.classList.add('show');
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => t.classList.remove('show'), 3200);
+    }
+
+    async function api(method, url, body) {
+      const res = await fetch(url, {
+        method,
+        headers: body ? { 'Content-Type': 'application/json' } : {},
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      if (res.status === 401) { location.href = '/login'; throw new Error('Sessão expirada.'); }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.erro || 'Algo deu errado. Tente novamente.');
+      return data;
+    }
+
+    function confirmar(titulo, texto, rotulo = 'Confirmar') {
+      return new Promise((resolve) => {
+        const d = $('dlg-confirmar');
+        $('conf-titulo').textContent = titulo;
+        $('conf-texto').textContent = texto;
+        $('conf-ok').textContent = rotulo;
+        d.returnValue = '';
+        d.onclose = () => resolve(d.returnValue === 'sim');
+        d.showModal();
+      });
+    }
+
+    function erroDialogo(dlg, msg) {
+      const box = dlg.querySelector('.erro-dlg');
+      box.textContent = msg || '';
+      box.classList.toggle('show', !!msg);
+    }
+
+    document.querySelectorAll('[data-fechar]').forEach((b) => b.onclick = () => b.closest('dialog').close());
+
+    // ---------- abas ----------
+
+    function abrirAba(aba) {
+      abaAtual = aba;
+      document.querySelectorAll('nav [data-aba]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.aba === aba)));
+      document.querySelectorAll('[data-painel]').forEach((s) => s.hidden = s.dataset.painel !== aba);
+      $('barra-dia').hidden = !['sorteio', 'cadastros'].includes(aba);
+      if (aba === 'usuarios') carregarUsuarios();
+      if (aba === 'atividade') carregarAtividade();
+      try { sessionStorage.setItem('aba', aba); } catch {}
+    }
+    document.querySelectorAll('nav [data-aba]').forEach((b) => b.onclick = () => abrirAba(b.dataset.aba));
+
+    // ---------- dados do sorteio ----------
 
     async function carregar() {
-      const res = await fetch('/api/admin/participantes');
-      if (!res.ok) { $('lista').innerHTML = '<tr><td colspan="6">Sessão expirada. Recarregue a página.</td></tr>'; return; }
-      estado = await res.json();
+      estado = await api('GET', '/api/admin/participantes');
       if (diaEscolhido === null) {
         // Começa no dia de hoje; se ainda não houver cadastros hoje, no dia mais recente.
         const temHoje = estado.datas.some((d) => d.data === estado.hoje);
         diaEscolhido = temHoje ? estado.hoje : (estado.datas[0]?.data || estado.hoje);
       }
       renderDias();
-      atualizarResumo();
+      renderTudo();
     }
 
     function renderDias() {
-      const opcoes = estado.datas.map((d) => [d.data, `${fmtDia(d.data)} — ${d.total} cadastro${d.total === 1 ? '' : 's'}`]);
-      if (diaEscolhido && !estado.datas.some((d) => d.data === diaEscolhido)) {
-        opcoes.unshift([diaEscolhido, `${fmtDia(diaEscolhido)} — 0 cadastros`]);
-      }
+      const rotulo = (data, total) => `${fmtDia(data)}${data === estado.hoje ? ' (hoje)' : ''} — ${total} cadastro${total === 1 ? '' : 's'}`;
+      const opcoes = estado.datas.map((d) => [d.data, rotulo(d.data, d.total)]);
+      if (diaEscolhido && !estado.datas.some((d) => d.data === diaEscolhido)) opcoes.unshift([diaEscolhido, rotulo(diaEscolhido, 0)]);
       opcoes.push(['', 'Todas as datas']);
       $('dia').replaceChildren(...opcoes.map(([v, t]) => { const o = el('option', t); o.value = v; return o; }));
       $('dia').value = diaEscolhido;
     }
 
-    function atualizarResumo() {
+    function renderTudo() {
       const doEvento = estado.participantes.filter(doDia);
       const sorteados = new Set(estado.sorteios.map((s) => s.id));
+      const sorteadosDia = estado.sorteios.filter(doDia);
       const elegiveis = doEvento.filter((p) => !sorteados.has(p.id)).length;
-      $('total').textContent = doEvento.length;
-      $('elegiveis').textContent = `${elegiveis} elegíve${elegiveis === 1 ? 'l' : 'is'} para o próximo sorteio`
-        + (diaEscolhido ? ` (cadastros de ${fmtDia(diaEscolhido)})` : ' (todas as datas)');
+      $('st-total').textContent = doEvento.length;
+      $('st-elegiveis').textContent = elegiveis;
+      $('st-sorteados').textContent = sorteadosDia.length;
       $('sortear').disabled = elegiveis === 0;
-      $('sortear').textContent = diaEscolhido ? `🎲 Sortear entre os cadastros de ${fmtDia(diaEscolhido)}` : '🎲 Sortear entre todos';
+      $('sortear').textContent = diaEscolhido ? `Sortear entre os cadastros de ${fmtDia(diaEscolhido)}` : 'Sortear entre todos os cadastros';
       $('csv').href = '/api/admin/participantes.csv' + (diaEscolhido ? `?data=${diaEscolhido}` : '');
+      $('titulo-lista').textContent = diaEscolhido ? `Cadastros de ${fmtDia(diaEscolhido)}` : 'Todos os cadastros';
+
+      $('historico').replaceChildren(...sorteadosDia.map((s) => {
+        const li = el('li');
+        li.append(el('strong', fmtId(s.id)), document.createTextNode(` — ${s.nome}`), el('span', `Sorteado em ${fmtData(s.sorteado_em)}`, 'quando'));
+        return li;
+      }));
+      $('historico-vazio').hidden = sorteadosDia.length > 0;
       renderLista();
-      renderHistorico();
     }
 
-    async function sortear() {
+    function renderLista() {
+      const termo = $('busca').value.trim().toLowerCase();
+      const termoNum = termo.replace(/\D/g, '');
+      const sorteados = new Set(estado.sorteios.map((s) => s.id));
+      const lista = estado.participantes.filter(doDia).filter((p) => !termo
+        || p.nome.toLowerCase().includes(termo)
+        || (termoNum && (p.telefone.includes(termoNum) || p.cpf.includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
+      const tbody = $('lista');
+      if (!lista.length) return linhaVazia(tbody, 7, termo ? 'Nenhum cadastro encontrado para essa busca.' : 'Nenhum cadastro neste dia.');
+      // Mais recentes primeiro.
+      tbody.replaceChildren(...lista.slice().reverse().map((p) => {
+        const tr = el('tr');
+        const nome = el('td', p.nome);
+        if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag sorteado'));
+        const acoes = el('td', null, 'acoes');
+        acoes.append(botao('Editar', '', () => editarCadastro(p)));
+        if (ehAdmin()) acoes.append(botao('Excluir', 'perigo', () => excluirCadastro(p)));
+        tr.append(el('td', fmtId(p.id), 'codigo'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
+          el('td', p.email || '—'), el('td', fmtData(p.criado_em)), acoes);
+        return tr;
+      }));
+    }
+
+    $('dia').onchange = () => { diaEscolhido = $('dia').value; $('palco').hidden = true; renderTudo(); };
+    $('busca').oninput = renderLista;
+
+    // ---------- sorteio ----------
+
+    $('sortear').onclick = async () => {
       const btn = $('sortear');
       btn.disabled = true;
-      const box = $('vencedor');
-      box.hidden = false;
-      box.classList.add('rolling');
+      const palco = $('palco');
+      palco.hidden = false;
+      palco.classList.add('girando');
       $('v-nome').textContent = 'Sorteando…';
       $('v-contato').textContent = '';
-
-      const req = fetch('/api/admin/sortear', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: diaEscolhido || null }),
-      }).then(async (r) => ({ ok: r.ok, data: await r.json() }));
+      const pedido = api('POST', '/api/admin/sortear', { data: diaEscolhido || null }).then((d) => ({ d }), (e) => ({ e }));
       // Animação de "roleta" com os códigos do dia enquanto o servidor sorteia.
       const ids = estado.participantes.filter(doDia).map((p) => p.id);
       const fim = Date.now() + 2500;
@@ -230,22 +513,195 @@
         $('v-num').textContent = fmtId(ids[Math.floor(Math.random() * ids.length)]);
         await new Promise((r) => setTimeout(r, 70));
       }
-      const { ok, data } = await req;
-      box.classList.remove('rolling');
-      if (!ok) { $('v-num').textContent = '—'; $('v-nome').textContent = data.erro; btn.disabled = false; return; }
-      const v = data.vencedor;
+      const { d, e } = await pedido;
+      palco.classList.remove('girando');
+      if (e) { $('v-num').textContent = '—'; $('v-nome').textContent = e.message; btn.disabled = false; return; }
+      const v = d.vencedor;
       $('v-num').textContent = fmtId(v.id);
       $('v-nome').textContent = v.nome;
-      $('v-contato').textContent = ['CPF ' + fmtCpf(v.cpf), fmtTel(v.telefone), v.email, `cadastro em ${fmtDia(v.data_cadastro)}`].filter(Boolean).join(' · ');
+      $('v-contato').textContent = [`CPF ${fmtCpf(v.cpf)}`, fmtTel(v.telefone), v.email].join(' · ');
       await carregar();
+    };
+
+    $('reiniciar').onclick = async () => {
+      const ok = await confirmar('Reiniciar histórico de sorteados?',
+        'O histórico de todos os dias será apagado e todos voltam a concorrer. Os cadastros não são apagados.', 'Reiniciar');
+      if (!ok) return;
+      try {
+        await api('POST', '/api/admin/reiniciar-sorteios', {});
+        $('palco').hidden = true;
+        toast('Histórico de sorteados reiniciado.');
+        carregar();
+      } catch (e) { toast(e.message, true); }
+    };
+
+    // ---------- editar / excluir cadastro ----------
+
+    let editando = null;
+    function editarCadastro(p) {
+      editando = p;
+      const d = $('dlg-cadastro');
+      erroDialogo(d, '');
+      $('dlg-cadastro-titulo').textContent = `Editar cadastro ${fmtId(p.id)}`;
+      $('c-nome').value = p.nome;
+      $('c-telefone').value = fmtTel(p.telefone);
+      $('c-cpf').value = fmtCpf(p.cpf);
+      $('c-email').value = p.email || '';
+      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)} (evento de ${fmtDia(p.data_cadastro)}).`;
+      d.showModal();
     }
 
-    async function reiniciar() {
-      if (!confirm('Apagar o histórico de sorteados? Todos voltarão a concorrer.')) return;
-      await fetch('/api/admin/reiniciar-sorteios', { method: 'POST' });
-      $('vencedor').hidden = true;
-      carregar();
+    $('form-cadastro').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = $('dlg-cadastro');
+      try {
+        await api('PUT', `/api/admin/participantes/${editando.id}`, {
+          nome: $('c-nome').value, telefone: $('c-telefone').value, cpf: $('c-cpf').value, email: $('c-email').value,
+        });
+        d.close();
+        toast(`Cadastro ${fmtId(editando.id)} atualizado.`);
+        carregar();
+      } catch (e) { erroDialogo(d, e.message); }
+    };
+
+    async function excluirCadastro(p) {
+      const ok = await confirmar(`Excluir o cadastro ${fmtId(p.id)}?`,
+        `${p.nome} (CPF ${fmtCpf(p.cpf)}) será removido da lista e do sorteio. Esta ação não pode ser desfeita.`, 'Excluir');
+      if (!ok) return;
+      try {
+        await api('DELETE', `/api/admin/participantes/${p.id}`);
+        toast(`Cadastro ${fmtId(p.id)} excluído.`);
+        carregar();
+      } catch (e) { toast(e.message, true); }
     }
+
+    // ---------- usuários ----------
+
+    async function carregarUsuarios() {
+      let usuarios;
+      try { usuarios = await api('GET', '/api/admin/usuarios'); } catch (e) { return toast(e.message, true); }
+      const tbody = $('usuarios');
+      if (!usuarios.length) return linhaVazia(tbody, 5, 'Nenhum usuário.');
+      tbody.replaceChildren(...usuarios.map((u) => {
+        const tr = el('tr');
+        const nome = el('td', u.nome);
+        if (u.id === eu.id) nome.append(el('span', 'você', 'tag operador'));
+        const perfil = el('td');
+        perfil.append(el('span', u.papel === 'admin' ? 'Administrador' : 'Operador', `tag perfil ${u.papel}`));
+        if (!u.ativo) perfil.append(el('span', 'desativado', 'tag perfil inativo'));
+        const acoes = el('td', null, 'acoes');
+        acoes.append(botao('Editar', '', () => abrirUsuario(u)));
+        if (u.id !== eu.id) acoes.append(botao('Excluir', 'perigo', () => excluirUsuario(u)));
+        tr.append(nome, el('td', u.email), perfil, el('td', fmtData(u.criado_em)), acoes);
+        return tr;
+      }));
+    }
+
+    let usuarioEditando = null;
+    function abrirUsuario(u = null) {
+      usuarioEditando = u;
+      const d = $('dlg-usuario');
+      erroDialogo(d, '');
+      $('dlg-usuario-titulo').textContent = u ? `Editar ${u.nome}` : 'Novo usuário';
+      $('u-nome').value = u ? u.nome : '';
+      $('u-email').value = u ? u.email : '';
+      $('u-papel').value = u ? u.papel : 'operador';
+      $('u-senha').value = '';
+      $('u-senha-label').textContent = u ? 'Nova senha (opcional)' : 'Senha';
+      $('u-senha-ajuda').textContent = u
+        ? 'Deixe em branco para manter a senha atual. Se trocar, a pessoa precisa entrar de novo.'
+        : 'Mínimo de 8 caracteres. Passe a senha para a pessoa por um canal seguro.';
+      $('u-ativo').checked = u ? !!u.ativo : true;
+      $('u-ativo-linha').hidden = !u || u.id === eu.id;
+      d.showModal();
+    }
+    $('novo-usuario').onclick = () => abrirUsuario();
+
+    $('form-usuario').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = $('dlg-usuario');
+      const body = { nome: $('u-nome').value, email: $('u-email').value, papel: $('u-papel').value, senha: $('u-senha').value, ativo: $('u-ativo').checked };
+      try {
+        if (usuarioEditando) await api('PUT', `/api/admin/usuarios/${usuarioEditando.id}`, body);
+        else await api('POST', '/api/admin/usuarios', body);
+        d.close();
+        toast(usuarioEditando ? 'Usuário atualizado.' : 'Usuário criado.');
+        if (usuarioEditando && usuarioEditando.id === eu.id) await carregarEu();
+        if (ehAdmin()) carregarUsuarios(); else abrirAba('sorteio');
+      } catch (e) { erroDialogo(d, e.message); }
+    };
+
+    async function excluirUsuario(u) {
+      const ok = await confirmar(`Excluir ${u.nome}?`, `${u.email} perde o acesso ao painel. O histórico de atividade dessa pessoa é mantido.`, 'Excluir');
+      if (!ok) return;
+      try {
+        await api('DELETE', `/api/admin/usuarios/${u.id}`);
+        toast('Usuário excluído.');
+        carregarUsuarios();
+      } catch (e) { toast(e.message, true); }
+    }
+
+    // ---------- atividade ----------
+
+    const NOMES_ACAO = {
+      'login': 'Entrou no painel',
+      'sorteio': 'Sorteio',
+      'sorteios.reiniciados': 'Reiniciou sorteios',
+      'cadastro.editado': 'Editou cadastro',
+      'cadastro.excluido': 'Excluiu cadastro',
+      'usuario.criado': 'Criou usuário',
+      'usuario.editado': 'Editou usuário',
+      'usuario.excluido': 'Excluiu usuário',
+      'senha.alterada': 'Alterou a senha',
+    };
+
+    async function carregarAtividade() {
+      let logs;
+      try { logs = await api('GET', '/api/admin/auditoria'); } catch (e) { return toast(e.message, true); }
+      const tbody = $('atividade');
+      if (!logs.length) return linhaVazia(tbody, 4, 'Nenhuma atividade registrada.');
+      tbody.replaceChildren(...logs.map((l) => {
+        const tr = el('tr');
+        tr.append(el('td', fmtData(l.criado_em)), el('td', l.usuario_nome || 'Sistema'),
+          el('td', NOMES_ACAO[l.acao] || l.acao), el('td', l.detalhe || '', 'quebra'));
+        return tr;
+      }));
+    }
+    $('atualizar-atividade').onclick = carregarAtividade;
+
+    // ---------- minha conta ----------
+
+    async function carregarEu() {
+      eu = await api('GET', '/api/me');
+      $('me-nome').textContent = eu.nome;
+      $('me-papel').textContent = eu.papel === 'admin' ? 'Administrador' : 'Operador';
+      document.querySelectorAll('.so-admin').forEach((e) => e.hidden = !ehAdmin());
+    }
+
+    $('abrir-senha').onclick = () => {
+      const d = $('dlg-senha');
+      erroDialogo(d, '');
+      ['s-atual', 's-nova', 's-conf'].forEach((id) => $(id).value = '');
+      d.showModal();
+    };
+
+    $('form-senha').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = $('dlg-senha');
+      if ($('s-nova').value !== $('s-conf').value) return erroDialogo(d, 'A confirmação não confere com a nova senha.');
+      try {
+        await api('POST', '/api/me/senha', { atual: $('s-atual').value, nova: $('s-nova').value });
+        d.close();
+        toast('Senha alterada.');
+      } catch (e) { erroDialogo(d, e.message); }
+    };
+
+    $('sair').onclick = async () => {
+      await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+      location.href = '/login';
+    };
+
+    // ---------- QR Code ----------
 
     function gerarQr() {
       const url = $('qr-url').value.trim();
@@ -260,22 +716,30 @@
       box.append(img);
       $('baixar-qr').href = dataUrl;
     }
-
-    $('atualizar').onclick = carregar;
-    $('sortear').onclick = sortear;
-    $('reiniciar').onclick = reiniciar;
-    $('busca').oninput = renderLista;
-    $('dia').onchange = () => { diaEscolhido = $('dia').value; $('vencedor').hidden = true; atualizarResumo(); };
     $('qr-url').oninput = gerarQr;
     $('qr-url').value = location.origin + '/';
-
     gerarQr();
-    fetch('/api/config').then((r) => r.json()).then((cfg) => {
-      if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
-      $('titulo').textContent = `Painel · ${cfg.evento}`;
-      $('qr-titulo').textContent = cfg.evento;
-    }).catch(() => {}).finally(carregar);
-    setInterval(carregar, 15000);
+
+    // ---------- início ----------
+
+    (async () => {
+      try {
+        const cfg = await fetch('/api/config').then((r) => r.json());
+        if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
+        $('evento').textContent = cfg.evento;
+        document.title = `Painel · ${cfg.evento}`;
+      } catch {}
+      await carregarEu();
+      let aba = 'sorteio';
+      try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
+      if (!ehAdmin() && ['usuarios', 'atividade'].includes(aba)) aba = 'sorteio';
+      abrirAba(aba);
+      await carregar();
+      // Atualiza os números sozinho durante o evento (sem atrapalhar quem está editando).
+      setInterval(() => {
+        if (!document.querySelector('dialog[open]') && ['sorteio', 'cadastros'].includes(abaAtual)) carregar().catch(() => {});
+      }, 15000);
+    })();
   </script>
 </body>
 </html>

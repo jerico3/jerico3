@@ -2,8 +2,9 @@
 
 Landing page mobile para cadastrar participantes do sorteio de brindes da importadora. Cada pessoa
 recebe na hora um **código de participação** (`VW-0001`, `VW-0002`, …), que é o ID do cadastro. Um
-painel administrativo mostra a lista, exporta CSV, gera o QR Code da página e faz o sorteio pelo código,
-**separado por dia de evento**: cada sorteio considera só quem se cadastrou naquele dia.
+painel administrativo, com login por usuário, mostra a lista, permite corrigir e excluir cadastros,
+exporta CSV, gera o QR Code da página e faz o sorteio pelo código, **separado por dia de evento**: cada
+sorteio considera só quem se cadastrou naquele dia.
 
 ## Imagem de fundo
 
@@ -16,19 +17,24 @@ Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`
 ## Como rodar
 
 ```bash
-ADMIN_PASSWORD=minha-senha EVENT_NAME="Sorteio de Natal" npm start
+ADMIN_EMAIL=voce@empresa.com ADMIN_PASSWORD=uma-senha-forte EVENT_NAME="Importadora" npm start
 ```
 
 - Página de cadastro: `http://localhost:3000/`
-- Painel admin: `http://localhost:3000/admin` (usuário: qualquer um; senha: `ADMIN_PASSWORD`)
+- Painel: `http://localhost:3000/admin` (redireciona para o login em `/login`)
 
-Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
+Na primeira vez que o app sobe com o banco vazio, ele cria um **administrador** com `ADMIN_EMAIL` e
+`ADMIN_PASSWORD`. Depois disso essas variáveis não são mais usadas: os demais usuários são criados pelo
+próprio painel, e cada um pode trocar a senha em **Alterar senha**.
+
+Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, recarrega ao salvar).
 
 ### Variáveis de ambiente
 
 | Variável         | Padrão              | Descrição                                            |
 | ---------------- | ------------------- | ---------------------------------------------------- |
-| `ADMIN_PASSWORD` | _(vazio)_           | Senha do painel. Sem ela, o `/admin` fica bloqueado. |
+| `ADMIN_EMAIL`    | `admin@sorteio.local` | E-mail do primeiro administrador (só no 1º uso).   |
+| `ADMIN_PASSWORD` | _(vazio)_           | Senha do primeiro administrador (só no 1º uso).      |
 | `EVENT_NAME`     | `Sorteio`           | Nome na aba do navegador, no painel e no QR Code.    |
 | `PORT`           | `3000`              | Porta HTTP.                                          |
 | `DB_PATH`        | `./data/sorteio.db` | Arquivo do banco SQLite.                             |
@@ -51,6 +57,14 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 - Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
 
 **Painel (`/admin`)**
+- **Login** com e-mail e senha (senhas guardadas com hash `scrypt`, sessão de 12 horas em cookie
+  `HttpOnly`, bloqueio de 15 minutos após 10 tentativas erradas).
+- **Perfis**: *Administrador* faz tudo; *Operador* vê e edita cadastros, baixa o CSV e faz sorteios,
+  mas não exclui cadastros, não reinicia o histórico e não gerencia usuários.
+- **Cadastros**: editar (nome, telefone, CPF, e-mail) e excluir. O dia do cadastro não muda.
+- **Usuários**: criar, editar, redefinir senha, desativar e excluir (sempre fica ao menos um
+  administrador ativo). Desativar ou redefinir a senha derruba as sessões abertas da pessoa.
+- **Atividade**: registro de quem entrou, sorteou, editou ou excluiu, com data e detalhes.
 - **Dia do evento**: escolha a data e o painel passa a mostrar só os cadastros daquele dia
   (contagem, lista, CSV e sorteio). Abre no dia de hoje.
 - Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
@@ -58,7 +72,7 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
   Confira se o endereço no campo é o endereço público antes de imprimir.
 - **Sortear**: escolhe um código aleatório entre os cadastros do dia escolhido ainda não sorteados
   (gerador criptográfico `crypto.randomInt`), com animação de roleta. Os sorteados ficam no
-  histórico e não concorrem de novo; **Reiniciar** limpa o histórico.
+  histórico e não concorrem de novo; **Reiniciar histórico** (só administradores) limpa o histórico.
 
 ## Publicação
 
@@ -71,7 +85,7 @@ Com Docker:
 ```bash
 docker build -t sorteio .
 docker run -p 3000:3000 -v sorteio-data:/app/data \
-  -e ADMIN_PASSWORD=minha-senha -e EVENT_NAME="Sorteio de Natal" sorteio
+  -e ADMIN_EMAIL=voce@empresa.com -e ADMIN_PASSWORD=uma-senha-forte -e EVENT_NAME="Importadora" sorteio
 ```
 
 Depois de publicado, abra `/admin`, confira o endereço no campo do QR Code e imprima.

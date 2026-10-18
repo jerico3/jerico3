@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#011250">
+  <meta name="robots" content="noindex">
+  <title>Entrar · Painel do sorteio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --navy: #011250;
+      --navy-2: #0a1a80;
+      --text: #0f172a;
+      --muted: #64748b;
+      --border: #d5dbe5;
+      --error: #b91c1c;
+      --error-bg: #fdecec;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      --fundo-largura: max(100vw, 900px);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100dvh;
+      background: var(--navy) url('/fundo.webp') center top / var(--fundo-largura) auto no-repeat;
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      /* Começa abaixo da logo que faz parte da imagem de fundo. */
+      padding: calc(var(--fundo-largura) * .129 + 32px) 16px 32px;
+    }
+    .card {
+      width: 100%;
+      max-width: 400px;
+      background: #fff;
+      border-radius: 18px;
+      padding: 32px 28px 28px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, .35);
+    }
+    .selo {
+      width: 44px; height: 44px; border-radius: 12px;
+      background: #eef1fb; color: var(--navy-2);
+      display: grid; place-items: center; margin-bottom: 16px;
+    }
+    h1 { margin: 0 0 4px; font-size: 1.35rem; color: var(--navy); }
+    .sub { margin: 0 0 24px; color: var(--muted); font-size: .92rem; }
+    label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 6px; color: #334155; }
+    .campo { margin-bottom: 16px; }
+    .senha { position: relative; }
+    input {
+      width: 100%;
+      font: inherit;
+      font-size: 16px;
+      padding: 12px 14px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text);
+      background: #fff;
+    }
+    .senha input { padding-right: 76px; }
+    input:focus { outline: none; border-color: var(--navy-2); box-shadow: 0 0 0 3px rgba(10, 26, 128, .14); }
+    .mostrar {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      background: none; border: 0; color: var(--navy-2); font: inherit; font-size: .82rem; font-weight: 600;
+      padding: 8px 10px; cursor: pointer; border-radius: 8px;
+    }
+    .mostrar:hover { background: #eef1fb; }
+    .entrar {
+      width: 100%;
+      margin-top: 8px;
+      font: inherit; font-weight: 700; font-size: 1rem;
+      color: #fff; background: var(--navy-2);
+      border: 0; border-radius: 10px; padding: 13px;
+      cursor: pointer;
+    }
+    .entrar:hover { background: var(--navy); }
+    .entrar:disabled { opacity: .65; cursor: wait; }
+    .erro {
+      display: none;
+      background: var(--error-bg); color: var(--error);
+      border-radius: 10px; padding: 10px 12px; font-size: .88rem; margin-bottom: 16px;
+    }
+    .erro.show { display: block; }
+    .rodape { margin-top: 20px; color: rgba(255, 255, 255, .6); font-size: .8rem; text-align: center; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <div class="selo" aria-hidden="true">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+    </div>
+    <h1>Painel do sorteio</h1>
+    <p class="sub">Acesso restrito à equipe organizadora.</p>
+
+    <form id="form" novalidate>
+      <div class="erro" id="erro" role="alert"></div>
+      <div class="campo">
+        <label for="email">E-mail</label>
+        <input type="email" id="email" autocomplete="username" required autofocus>
+      </div>
+      <div class="campo">
+        <label for="senha">Senha</label>
+        <div class="senha">
+          <input type="password" id="senha" autocomplete="current-password" required>
+          <button type="button" class="mostrar" id="mostrar" aria-controls="senha">Mostrar</button>
+        </div>
+      </div>
+      <button type="submit" class="entrar" id="entrar">Entrar</button>
+    </form>
+  </main>
+  <p class="rodape">Esqueceu a senha? Peça a um administrador para redefinir.</p>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+
+    $('mostrar').addEventListener('click', () => {
+      const visivel = $('senha').type === 'text';
+      $('senha').type = visivel ? 'password' : 'text';
+      $('mostrar').textContent = visivel ? 'Mostrar' : 'Ocultar';
+    });
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const erro = $('erro');
+      erro.classList.remove('show');
+      const email = $('email').value.trim();
+      const senha = $('senha').value;
+      if (!email || !senha) {
+        erro.textContent = 'Informe e-mail e senha.';
+        return erro.classList.add('show');
+      }
+      const btn = $('entrar');
+      btn.disabled = true;
+      btn.textContent = 'Entrando…';
+      try {
+        const res = await fetch('/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, senha }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.erro || 'Não foi possível entrar.');
+        location.href = '/admin';
+      } catch (err) {
+        erro.textContent = err.message === 'Failed to fetch' ? 'Sem conexão. Tente novamente.' : err.message;
+        erro.classList.add('show');
+        $('senha').select();
+        btn.disabled = false;
+        btn.textContent = 'Entrar';
+      }
+    });
+  </script>
+</body>
+</html>
