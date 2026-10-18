@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#011250">
   <title>Cadastro · Concorra a brindes</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
@@ -82,6 +83,9 @@
     .check { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; font-size: .78rem; color: #5b6478; }
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--navy-2); flex-shrink: 0; }
     .check label { font-weight: 400; color: inherit; font-size: inherit; margin: 0; }
+    .check + .check { margin-top: -6px; }
+    .check a { color: var(--navy-2); font-weight: 600; }
+    .obrig { color: var(--error); }
     .hp { position: absolute; left: -9999px; width: 1px; height: 1px; overflow: hidden; }
     button[type=submit] {
       font: inherit;
@@ -178,8 +182,12 @@
       </div>
 
       <div class="check">
-        <input type="checkbox" id="aceite" name="aceite" required>
-        <label for="aceite">Autorizo o uso dos meus dados exclusivamente para participação e contato sobre o sorteio de brindes.</label>
+        <input type="checkbox" id="aceite" name="aceite" required aria-describedby="aviso-link">
+        <label for="aceite">Li e concordo com o <a href="/privacidade" target="_blank" rel="noopener" id="aviso-link">Aviso de Privacidade</a> e autorizo o uso dos meus dados para participar do sorteio e ser contatado sobre o resultado. <span class="obrig">(obrigatório)</span></label>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="marketing" name="marketing">
+        <label for="marketing">Quero receber ofertas e novidades da <span id="nome-empresa">Importadora</span> por e-mail, telefone ou WhatsApp. (opcional)</label>
       </div>
 
       <button type="submit" id="enviar">Enviar</button>
@@ -269,7 +277,7 @@
       if (telefone.length < 10) return showError('Informe um telefone válido com DDD.');
       if (!cpfValido(cpf)) return showError('Informe um CPF válido.');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError('Informe um e-mail válido.');
-      if (!$('aceite').checked) return showError('Marque a autorização para participar.');
+      if (!$('aceite').checked) return showError('Para participar, é preciso concordar com o Aviso de Privacidade.');
 
       const btn = $('enviar');
       btn.disabled = true;
@@ -278,7 +286,7 @@
         const res = await fetch('/api/cadastro', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nome, cpf, telefone, email, aceite: true, site: $('site').value }),
+          body: JSON.stringify({ nome, cpf, telefone, email, aceite: true, marketing: $('marketing').checked, site: $('site').value }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
@@ -312,6 +320,7 @@
       if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
       if (cfg.hoje) hoje = cfg.hoje;
       if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
+      if (cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.privacidade.controlador;
     }).catch(() => {}).finally(restaurar);
   </script>
 </body>

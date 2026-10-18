@@ -45,6 +45,10 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 | `DB_PATH`        | `./data/sorteio.db` | Arquivo do banco SQLite.                             |
 | `CODE_PREFIX`    | `VW-`               | Prefixo do código de participação.                   |
 | `TIMEZONE`       | `America/Sao_Paulo` | Fuso usado para definir o dia do cadastro.           |
+| `CONTROLADOR_NOME` | `EVENT_NAME`      | Razão social exibida no Aviso de Privacidade.        |
+| `CONTROLADOR_CNPJ` | _(vazio)_         | CNPJ exibido no Aviso de Privacidade.                |
+| `CONTATO_PRIVACIDADE` | _(vazio)_      | E-mail para pedidos dos titulares (LGPD, art. 18).   |
+| `RETENCAO_DIAS`  | `0` (desligado)     | Apaga automaticamente cadastros com mais de N dias.  |
 
 ## Funcionalidades
 
@@ -60,6 +64,24 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 - O código fica salvo no navegador até o fim do dia: reabrir a página ou escanear o QR de novo no
   mesmo dia mostra o código.
 - Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
+- Se alguém tentar um CPF já cadastrado no dia com outro telefone, o sistema não revela o nome nem o
+  código de quem se cadastrou (evita descobrir dados de terceiros pelo CPF).
+
+**LGPD**
+- Aceite **obrigatório** do Aviso de Privacidade (`/privacidade`), validado no navegador e no servidor.
+- Aceite de **ofertas separado e opcional** (consentimento específico, art. 8º §4º).
+- Cada cadastro guarda a prova do consentimento: data/hora, versão do aviso (`TERMOS_VERSAO` em
+  `server.js`; mude-a quando o texto mudar) e se aceitou ofertas. Aparece no painel e no CSV.
+- Minimização: operadores veem o CPF mascarado (`***.456.789-**`) e não exportam CSV.
+- Retenção configurável (`RETENCAO_DIAS`), com registro na aba Atividade.
+- Atendimento aos titulares: buscar pelo CPF, corrigir ou excluir o cadastro no painel.
+- O Aviso de Privacidade é um modelo: **revise com o jurídico** antes de usar.
+
+**Segurança**
+- Cabeçalhos: CSP, `X-Frame-Options: DENY`, HSTS (atrás de HTTPS), `nosniff`, `Referrer-Policy`.
+- Limite de tentativas usa o IP anotado pelo proxy (último valor de `X-Forwarded-For`), que o
+  cliente não consegue forjar.
+- Exportações de CSV ficam registradas na aba Atividade.
 
 **Painel (`/admin`)**
 - **Login** com e-mail e senha (senhas guardadas com hash `scrypt`, sessão de 12 horas em cookie

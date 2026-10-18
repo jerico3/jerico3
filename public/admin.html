@@ -98,6 +98,7 @@
     .vazio { color: var(--muted); text-align: center; padding: 28px; }
     .tag { display: inline-block; font-size: .7rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; vertical-align: 1px; }
     .tag.sorteado { background: var(--accent); color: var(--navy); }
+    .tag.ofertas { background: #e8f6ec; color: #166534; }
     .tag.admin { background: var(--accent-soft); color: var(--navy-2); }
     .tag.operador { background: #f1f5f9; color: #475569; }
     .tag.perfil { margin-left: 0; margin-right: 6px; }
@@ -230,7 +231,7 @@
           <h2 id="titulo-lista">Cadastros</h2>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <input type="search" id="busca" placeholder="Buscar por código, nome, CPF ou telefone" style="width:300px;max-width:100%">
-            <a class="btn" id="csv" href="/api/admin/participantes.csv">Baixar CSV</a>
+            <a class="btn so-admin" id="csv" href="/api/admin/participantes.csv" hidden>Baixar CSV</a>
           </div>
         </div>
         <div class="tabela">
@@ -360,7 +361,7 @@
       <div class="erro-dlg"></div>
       <div class="campo"><label for="c-nome">Nome completo</label><input type="text" id="c-nome" required></div>
       <div class="campo"><label for="c-telefone">Telefone</label><input type="tel" id="c-telefone" required></div>
-      <div class="campo"><label for="c-cpf">CPF</label><input type="text" id="c-cpf" inputmode="numeric" required></div>
+      <div class="campo"><label for="c-cpf">CPF</label><input type="text" id="c-cpf" inputmode="numeric" required><div class="ajuda" id="c-cpf-ajuda" hidden>Só administradores veem e alteram o CPF completo.</div></div>
       <div class="campo"><label for="c-email">E-mail</label><input type="email" id="c-email" required></div>
       <p class="muted" id="c-dia" style="font-size:.85rem;margin:0"></p>
       <div class="rodape-dlg">
@@ -599,6 +600,7 @@
         const tr = el('tr');
         const nome = el('td', p.nome);
         if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag sorteado'));
+        if (p.aceita_marketing) nome.append(el('span', 'aceita ofertas', 'tag ofertas'));
         const acoes = el('td', null, 'acoes');
         acoes.append(botao('Editar', '', () => editarCadastro(p)));
         if (ehAdmin()) acoes.append(botao('Excluir', 'perigo', () => excluirCadastro(p)));
@@ -662,8 +664,12 @@
       $('c-nome').value = p.nome;
       $('c-telefone').value = fmtTel(p.telefone);
       $('c-cpf').value = fmtCpf(p.cpf);
+      $('c-cpf').disabled = !ehAdmin();
+      $('c-cpf-ajuda').hidden = ehAdmin();
       $('c-email').value = p.email || '';
-      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)} (evento de ${fmtDia(p.data_cadastro)}).`;
+      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)} (evento de ${fmtDia(p.data_cadastro)}). `
+        + (p.aceite_em ? `Aceitou o Aviso de Privacidade (versão ${fmtDia(p.termos_versao || '')}) em ${fmtData(p.aceite_em)}. ` : '')
+        + `Aceita ofertas: ${p.aceita_marketing ? 'sim' : 'não'}.`;
       d.showModal();
     }
 
@@ -772,6 +778,8 @@
       'link.criado': 'Criou link',
       'link.editado': 'Editou link',
       'link.excluido': 'Excluiu link',
+      'cadastros.exportados': 'Exportou CSV',
+      'retencao': 'Limpeza automática (retenção)',
     };
 
     const NOMES_DISPOSITIVO = { iphone: 'iPhone', android: 'Android', computador: 'Computador', outro: 'Outros' };

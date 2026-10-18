@@ -21,6 +21,14 @@ const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'sorteio.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SESSION_HOURS = 12;
+// Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
+const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
+const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
+const CONTATO_PRIVACIDADE = process.env.CONTATO_PRIVACIDADE || '';
+// Cadastros com mais de N dias são apagados automaticamente (0 = não apaga).
+const RETENCAO_DIAS = Math.max(0, Number(process.env.RETENCAO_DIAS) || 0);
+// Versão do texto do aviso/termo. Mude quando o texto mudar: cada cadastro guarda a versão aceita.
+const TERMOS_VERSAO = '2026-10-18';
 
 // ---------- banco de dados ----------
 
@@ -56,6 +64,12 @@ if (!colunas.length) {
     COMMIT;
   `);
   db.exec('PRAGMA foreign_keys = ON');
+}
+// Prova do consentimento (LGPD, art. 8º): quando aceitou, qual versão do aviso, e se aceitou ofertas.
+for (const [col, tipo] of [['aceite_em', 'TEXT'], ['termos_versao', 'TEXT'], ['aceita_marketing', 'INTEGER NOT NULL DEFAULT 0']]) {
+  if (!db.prepare('PRAGMA table_info(participantes)').all().some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE participantes ADD COLUMN ${col} ${tipo}`);
+  }
 }
 db.exec(`
   CREATE INDEX IF NOT EXISTS participantes_data ON participantes (data_cadastro);
@@ -112,13 +126,15 @@ if (!db.prepare('PRAGMA table_info(links)').all().some((c) => c.name === 'utm'))
   db.exec('ALTER TABLE links ADD COLUMN utm INTEGER NOT NULL DEFAULT 1');
 }
 
-const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em';
+const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
 const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em';
 
 const q = {
   insert: db.prepare(`
-    INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro) VALUES (?, ?, ?, ?, ?)`),
-  byCpfDia: db.prepare('SELECT id, nome FROM participantes WHERE cpf = ? AND data_cadastro = ?'),
+    INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro, aceite_em, termos_versao, aceita_marketing)
+    VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)`),
+  byCpfDia: db.prepare('SELECT id, nome, telefone FROM participantes WHERE cpf = ? AND data_cadastro = ?'),
+  expiredIds: db.prepare('SELECT id FROM participantes WHERE data_cadastro < ?'),
   all: db.prepare(`SELECT ${PARTICIPANTE_COLS} FROM participantes ORDER BY id`),
   byDate: db.prepare(`SELECT ${PARTICIPANTE_COLS} FROM participantes WHERE data_cadastro = ? ORDER BY id`),
   datas: db.prepare(`
@@ -223,7 +239,13 @@ const sha256 = (s) => crypto.createHash('sha256').update(s).digest('hex');
 function lerCookie(req, nome) {
   for (const parte of (req.headers.cookie || '').split(';')) {
     const [k, ...v] = parte.trim().split('=');
-    if (k === nome) return decodeURIComponent(v.join('='));
+    if (k === nome) {
+      try {
+        return decodeURIComponent(v.join('='));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }
@@ -253,6 +275,9 @@ async function criarPrimeiroAdmin() {
   if (!ADMIN_PASSWORD) {
     console.warn('[aviso] Nenhum usuário cadastrado. Defina ADMIN_PASSWORD (e ADMIN_EMAIL) para criar o primeiro administrador.');
     return;
+  }
+  if (ADMIN_PASSWORD.length < 8) {
+    console.warn('[aviso] ADMIN_PASSWORD tem menos de 8 caracteres. Troque a senha no painel assim que entrar.');
   }
   q.insertUser.run('Administrador', ADMIN_EMAIL, await hashSenha(ADMIN_PASSWORD), 'admin');
   registrar(null, 'usuario.criado', `Primeiro administrador: ${ADMIN_EMAIL}`);
@@ -347,8 +372,19 @@ const limiteCadastro = criarLimitador(20, 10 * 60 * 1000);
 // No login só contam as tentativas que falharam (a equipe costuma estar na mesma rede do evento).
 const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 
+// Atrás de um proxy (Hostinger, Caddy), o último valor de X-Forwarded-For é o IP que o proxy viu;
+// os anteriores vêm do próprio cliente e poderiam ser forjados para escapar do limite de tentativas.
 function clientIp(req) {
-  return (req.headers['x-forwarded-for'] || '').split(',')[0].trim() || req.socket.remoteAddress;
+  const ips = String(req.headers['x-forwarded-for'] || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return ips[ips.length - 1] || req.socket.remoteAddress;
+}
+
+// Operadores veem o CPF mascarado (minimização de dados): ***.456.789-**
+function mascararCpf(cpf) {
+  return cpf ? `***.${cpf.slice(3, 6)}.${cpf.slice(6, 9)}-**` : cpf;
+}
+function paraUsuario(u, p) {
+  return u.papel === 'admin' || !p ? p : { ...p, cpf: mascararCpf(p.cpf) };
 }
 
 function csvCell(v) {
@@ -403,8 +439,8 @@ function normalize(body, { exigirAceite = true } = {}) {
   if (!cpfValido(cpf)) errors.push('Informe um CPF válido.');
   if (telefone.length < 10 || telefone.length > 13) errors.push('Informe um telefone válido com DDD.');
   if (!emailValido(email)) errors.push('Informe um e-mail válido.');
-  if (exigirAceite && body.aceite !== true) errors.push('É preciso aceitar os termos para participar.');
-  return { nome, cpf, telefone, email, errors };
+  if (exigirAceite && body.aceite !== true) errors.push('É preciso aceitar o Aviso de Privacidade para participar.');
+  return { nome, cpf, telefone, email, marketing: body.marketing === true ? 1 : 0, errors };
 }
 
 function normalizeUsuario(body, { senhaObrigatoria }) {
@@ -430,7 +466,19 @@ function rota(method, pattern, handler) {
   routes.push({ method, regex, keys, handler });
 }
 
-rota('GET', '/api/config', (req, res) => json(res, 200, { evento: EVENT_NAME, prefixo: CODE_PREFIX, hoje: hoje(), publicUrl: PUBLIC_URL }));
+rota('GET', '/api/config', (req, res) => json(res, 200, {
+  evento: EVENT_NAME,
+  prefixo: CODE_PREFIX,
+  hoje: hoje(),
+  publicUrl: PUBLIC_URL,
+  privacidade: {
+    controlador: CONTROLADOR_NOME,
+    cnpj: CONTROLADOR_CNPJ,
+    contato: CONTATO_PRIVACIDADE,
+    retencaoDias: RETENCAO_DIAS,
+    versao: TERMOS_VERSAO,
+  },
+}));
 
 rota('POST', '/api/cadastro', async (req, res) => {
   limiteCadastro.contar(clientIp(req));
@@ -453,9 +501,14 @@ rota('POST', '/api/cadastro', async (req, res) => {
   const dia = hoje();
   const existing = q.byCpfDia.get(data.cpf, dia);
   if (existing) {
+    // Só devolve o código se o telefone conferir: sem isso, qualquer um que digitasse o CPF de
+    // outra pessoa descobriria o nome e o código dela.
+    if (existing.telefone !== data.telefone) {
+      return json(res, 409, { erro: 'Este CPF já foi cadastrado hoje. Se foi você, informe o mesmo telefone usado no cadastro.' });
+    }
     return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true });
   }
-  const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia);
+  const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
   return json(res, 201, { id: Number(r.lastInsertRowid), nome: data.nome, data_cadastro: dia, jaCadastrado: false });
 });
 
@@ -512,18 +565,27 @@ rota('POST', '/api/me/senha', async (req, res) => {
 // --- cadastros ---
 
 rota('GET', '/api/admin/participantes', (req, res) => {
-  if (!exigirUsuario(req, res)) return;
-  json(res, 200, { participantes: q.all.all(), sorteios: q.draws.all(), datas: q.datas.all(), hoje: hoje() });
+  const u = exigirUsuario(req, res);
+  if (!u) return;
+  json(res, 200, {
+    participantes: q.all.all().map((p) => paraUsuario(u, p)),
+    sorteios: q.draws.all().map((p) => paraUsuario(u, p)),
+    datas: q.datas.all(),
+    hoje: hoje(),
+  });
 });
 
 rota('GET', '/api/admin/participantes.csv', (req, res) => {
-  if (!exigirUsuario(req, res)) return;
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
   const dia = dataParam(new URL(req.url, 'http://localhost').searchParams.get('data'));
   const rows = dia ? q.byDate.all(dia) : q.all.all();
-  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'criado_em_utc'].join(',')];
+  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'criado_em_utc', 'aceita_ofertas', 'aceite_em_utc', 'versao_aviso'].join(',')];
   for (const r of rows) {
-    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, r.criado_em].map(csvCell).join(','));
+    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, r.criado_em,
+      r.aceita_marketing ? 'sim' : 'nao', r.aceite_em, r.termos_versao].map(csvCell).join(','));
   }
+  registrar(u, 'cadastros.exportados', `${rows.length} cadastros · ${dia ? 'dia ' + diaBr(dia) : 'todas as datas'}`);
   send(res, 200, '﻿' + lines.join('\r\n'), {
     'Content-Type': 'text/csv; charset=utf-8',
     'Content-Disposition': `attachment; filename="participantes${dia ? '-' + dia : ''}.csv"`,
@@ -535,7 +597,10 @@ rota('PUT', '/api/admin/participantes/:id', async (req, res, { id }) => {
   if (!u) return;
   const antes = q.byId.get(id);
   if (!antes) return json(res, 404, { erro: 'Cadastro não encontrado.' });
-  const data = normalize(await readJson(req).catch(() => ({})), { exigirAceite: false });
+  const body = await readJson(req).catch(() => ({}));
+  // Operadores veem o CPF mascarado e não podem alterá-lo.
+  if (u.papel !== 'admin') body.cpf = antes.cpf;
+  const data = normalize(body, { exigirAceite: false });
   if (data.errors.length) return json(res, 422, { erro: data.errors.join(' ') });
   try {
     q.update.run(data.nome, data.cpf, data.telefone, data.email, id);
@@ -547,7 +612,7 @@ rota('PUT', '/api/admin/participantes/:id', async (req, res, { id }) => {
     .filter((k) => antes[k] !== data[k])
     .map((k) => `${k}: "${antes[k] ?? ''}" → "${data[k]}"`);
   registrar(u, 'cadastro.editado', `${codigo(id)} · ${mudancas.join('; ') || 'sem mudanças'}`);
-  json(res, 200, q.byId.get(id));
+  json(res, 200, paraUsuario(u, q.byId.get(id)));
 });
 
 rota('DELETE', '/api/admin/participantes/:id', (req, res, { id }) => {
@@ -578,7 +643,7 @@ rota('POST', '/api/admin/sortear', async (req, res) => {
   q.insertDraw.run(winnerId);
   const vencedor = q.byId.get(winnerId);
   registrar(u, 'sorteio', `${codigo(winnerId)} · ${vencedor.nome} · ${dia ? 'dia ' + diaBr(dia) : 'todas as datas'} · ${pool.length} concorrendo`);
-  json(res, 200, { vencedor, elegiveis: pool.length });
+  json(res, 200, { vencedor: paraUsuario(u, vencedor), elegiveis: pool.length });
 });
 
 rota('POST', '/api/admin/reiniciar-sorteios', (req, res) => {
@@ -805,6 +870,8 @@ rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') |
 
 rota('GET', '/sorteio', (req, res) => serveFile(res, 'index.html'));
 
+rota('GET', '/privacidade', (req, res) => serveFile(res, 'privacidade.html'));
+
 rota('GET', '/login', (req, res) => {
   if (usuarioDaSessao(req)) return redirect(res, '/admin');
   serveFile(res, 'login.html');
@@ -836,8 +903,30 @@ function serveFile(res, rel) {
   });
 }
 
+// Política de segurança de conteúdo: só carrega scripts/estilos do próprio site (e as fontes do
+// Google), não deixa o site ser embutido em outro (clickjacking) e não envia dados para fora.
+const CSP = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  'font-src https://fonts.gstatic.com',
+  "img-src 'self' data:",
+  "connect-src 'self'",
+  "frame-ancestors 'none'",
+  "base-uri 'none'",
+  "form-action 'self'",
+  "object-src 'none'",
+].join('; ');
+
 const server = http.createServer(async (req, res) => {
   const { pathname } = new URL(req.url, 'http://localhost');
+  res.setHeader('Content-Security-Policy', CSP);
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  if (req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https') {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000');
+  }
   try {
     for (const r of routes) {
       if (r.method !== req.method) continue;
@@ -851,12 +940,36 @@ const server = http.createServer(async (req, res) => {
     if (link) return redirecionarLink(req, res, link);
     if (pathname === '/admin.html') return redirect(res, '/admin');
     if (pathname === '/login.html') return redirect(res, '/login');
-    return serveFile(res, decodeURIComponent(pathname).replace(/^\/+/, ''));
+    let arquivo;
+    try {
+      arquivo = decodeURIComponent(pathname).replace(/^\/+/, '');
+    } catch {
+      return send(res, 400, 'Endereço inválido');
+    }
+    return serveFile(res, arquivo);
   } catch (e) {
     console.error(e);
     if (!res.headersSent) json(res, 500, { erro: 'Erro interno. Tente novamente.' });
   }
 });
+
+// Apaga os cadastros (e seus sorteios) mais antigos que RETENCAO_DIAS, conforme o Aviso de Privacidade.
+function aplicarRetencao() {
+  if (!RETENCAO_DIAS) return;
+  const limite = hoje(new Date(Date.now() - RETENCAO_DIAS * 86400000));
+  const ids = q.expiredIds.all(limite).map((r) => r.id);
+  if (!ids.length) return;
+  transacao(() => {
+    for (const id of ids) {
+      q.deleteDrawsOf.run(id);
+      q.delete.run(id);
+    }
+  });
+  registrar(null, 'retencao', `${ids.length} cadastros anteriores a ${diaBr(limite)} apagados (retenção de ${RETENCAO_DIAS} dias)`);
+  console.log(`Retenção: ${ids.length} cadastros antigos apagados.`);
+}
+aplicarRetencao();
+setInterval(aplicarRetencao, 6 * 60 * 60 * 1000).unref();
 
 criarPrimeiroAdmin().then(() => {
   server.listen(PORT, () => {
