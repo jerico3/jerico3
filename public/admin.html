@@ -106,6 +106,15 @@
 
     #qr { background: #fff; padding: 12px; border: 1px solid var(--border); border-radius: 12px; display: inline-block; line-height: 0; }
     #qr img { width: 220px; height: 220px; image-rendering: pixelated; }
+    #qr-print { text-align: center; }
+    .qr-url { font-weight: 700; word-break: break-all; margin: 12px 0 4px; }
+    #links td { white-space: normal; }
+    #links td.acoes { white-space: nowrap; }
+    td.destino { word-break: break-all; min-width: 140px; }
+    .link-end { font-weight: 700; color: var(--navy-2); }
+    .prefixo-link { display: flex; align-items: center; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+    .prefixo-link span { background: #f1f5f9; color: var(--muted); padding: 9px 10px; font-size: .85rem; white-space: nowrap; max-width: 55%; overflow: hidden; text-overflow: ellipsis; }
+    .prefixo-link input { border: 0; border-radius: 0; flex: 1; min-width: 0; }
 
     /* ---------- diálogos ---------- */
     dialog { border: 0; border-radius: 16px; padding: 0; width: min(480px, calc(100vw - 32px)); box-shadow: 0 30px 80px rgba(0,0,0,.3); }
@@ -148,7 +157,7 @@
       <nav role="tablist">
         <button role="tab" data-aba="sorteio" aria-selected="true">Sorteio</button>
         <button role="tab" data-aba="cadastros">Cadastros</button>
-        <button role="tab" data-aba="qr">QR Code</button>
+        <button role="tab" data-aba="links">Links e QR Code</button>
         <button role="tab" data-aba="usuarios" class="so-admin" hidden>Usuários</button>
         <button role="tab" data-aba="atividade" class="so-admin" hidden>Atividade</button>
       </nav>
@@ -210,20 +219,37 @@
       </div>
     </section>
 
-    <!-- QR Code -->
-    <section data-painel="qr" hidden>
-      <div class="card" id="qr-print">
-        <h2>QR Code da página de cadastro</h2>
-        <div id="qr"></div>
-        <p style="margin:12px 0"><strong>Escaneie para participar do sorteio</strong></p>
-        <div class="nao-imprimir">
-          <div class="campo" style="max-width:480px">
-            <label for="qr-url">Endereço do QR Code</label>
-            <input type="url" id="qr-url">
-            <div class="ajuda">Confira se é o endereço público do site antes de imprimir.</div>
+    <!-- Links e QR Code -->
+    <section data-painel="links" hidden>
+      <div class="grid2">
+        <div class="card">
+          <div class="cab">
+            <h2>Links</h2>
+            <button class="btn primario so-admin" id="novo-link" hidden>Novo link</button>
           </div>
-          <div style="display:flex;gap:8px">
-            <a class="btn" id="baixar-qr" download="qrcode-sorteio.gif">Baixar imagem</a>
+          <p class="muted" style="margin-top:-6px">
+            O QR Code leva ao <strong>link</strong>, e o link leva ao <strong>destino</strong>. Troque o destino quando
+            quiser (formulário, Instagram, site…) e o QR Code já impresso passa a abrir o novo endereço na hora.
+          </p>
+          <div class="campo" style="max-width:420px">
+            <label for="base-url">Domínio público do site</label>
+            <input type="url" id="base-url" placeholder="https://importadoraforms.com.br">
+            <div class="ajuda">Usado para montar os links e os QR Codes. Confira antes de imprimir.</div>
+          </div>
+          <div class="tabela">
+            <table>
+              <thead><tr><th>Link</th><th>Leva para</th><th>Acessos</th><th></th></tr></thead>
+              <tbody id="links"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="card" id="qr-print">
+          <h2 id="qr-titulo">QR Code</h2>
+          <div id="qr"></div>
+          <p class="qr-url" id="qr-url"></p>
+          <p class="muted nao-imprimir" id="qr-destino" style="margin:0 0 14px"></p>
+          <div class="nao-imprimir" style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <a class="btn" id="baixar-qr" download="qrcode.gif">Baixar imagem</a>
             <button class="btn" onclick="window.print()">Imprimir</button>
           </div>
         </div>
@@ -300,6 +326,34 @@
         <div class="ajuda" id="u-senha-ajuda"></div>
       </div>
       <label class="check" id="u-ativo-linha"><input type="checkbox" id="u-ativo"> Usuário ativo (pode entrar no painel)</label>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-link">
+    <form method="dialog" id="form-link" novalidate>
+      <h3 id="dlg-link-titulo">Novo link</h3>
+      <div class="erro-dlg"></div>
+      <div class="campo" id="l-slug-campo">
+        <label for="l-slug">Endereço do link</label>
+        <div class="prefixo-link"><span id="l-prefixo"></span><input type="text" id="l-slug" placeholder="instagram" autocapitalize="off" spellcheck="false"></div>
+        <div class="ajuda">Letras minúsculas, números e hífen. Ex.: instagram, whatsapp, evento-dezembro.</div>
+      </div>
+      <div class="campo">
+        <label for="l-tipo">Leva para</label>
+        <select id="l-tipo">
+          <option value="/sorteio">Formulário do sorteio</option>
+          <option value="url">Outro endereço (Instagram, site, WhatsApp…)</option>
+        </select>
+      </div>
+      <div class="campo" id="l-url-campo">
+        <label for="l-url">Endereço de destino</label>
+        <input type="url" id="l-url" placeholder="https://instagram.com/suaimportadora">
+      </div>
+      <div class="campo"><label for="l-desc">Descrição (opcional)</label><input type="text" id="l-desc" maxlength="120" placeholder="Ex.: Banner do estande"></div>
       <div class="rodape-dlg">
         <button type="button" class="btn" data-fechar>Cancelar</button>
         <button type="submit" class="btn primario">Salvar</button>
@@ -421,6 +475,7 @@
       $('barra-dia').hidden = !['sorteio', 'cadastros'].includes(aba);
       if (aba === 'usuarios') carregarUsuarios();
       if (aba === 'atividade') carregarAtividade();
+      if (aba === 'links') carregarLinks();
       try { sessionStorage.setItem('aba', aba); } catch {}
     }
     document.querySelectorAll('nav [data-aba]').forEach((b) => b.onclick = () => abrirAba(b.dataset.aba));
@@ -653,6 +708,9 @@
       'usuario.editado': 'Editou usuário',
       'usuario.excluido': 'Excluiu usuário',
       'senha.alterada': 'Alterou a senha',
+      'link.criado': 'Criou link',
+      'link.editado': 'Editou link',
+      'link.excluido': 'Excluiu link',
     };
 
     async function carregarAtividade() {
@@ -701,24 +759,112 @@
       location.href = '/login';
     };
 
-    // ---------- QR Code ----------
+    // ---------- links e QR Code ----------
+
+    let links = [];
+    let linkDoQr = null;
+    const baseUrl = () => ($('base-url').value.trim() || location.origin).replace(/\/+$/, '');
+    const urlDoLink = (l) => `${baseUrl()}/${l.slug}`;
+    const nomeDestino = (d) => d === '/sorteio' ? 'Formulário do sorteio' : d;
+
+    async function carregarLinks() {
+      try { links = await api('GET', '/api/admin/links'); } catch (e) { return toast(e.message, true); }
+      linkDoQr = links.find((l) => l.id === linkDoQr?.id) || links.find((l) => l.slug === '') || links[0] || null;
+      renderLinks();
+    }
+
+    function renderLinks() {
+      const tbody = $('links');
+      if (!links.length) return linhaVazia(tbody, 4, 'Nenhum link.');
+      tbody.replaceChildren(...links.map((l) => {
+        const tr = el('tr');
+        const end = el('td');
+        end.append(el('div', l.slug ? `/${l.slug}` : '/ (principal)', 'link-end'));
+        if (l.descricao) end.append(el('div', l.descricao, 'muted'));
+        const acoes = el('td', null, 'acoes');
+        acoes.append(botao('QR Code', '', () => { linkDoQr = l; gerarQr(); }));
+        if (ehAdmin()) {
+          acoes.append(botao('Editar', '', () => abrirLink(l)));
+          if (l.slug) acoes.append(botao('Excluir', 'perigo', () => excluirLink(l)));
+        }
+        tr.append(end, el('td', nomeDestino(l.destino), 'destino'), el('td', String(l.cliques)), acoes);
+        return tr;
+      }));
+      gerarQr();
+    }
 
     function gerarQr() {
-      const url = $('qr-url').value.trim();
       const box = $('qr');
       box.replaceChildren();
-      if (!url || typeof qrcode === 'undefined') return;
+      if (!linkDoQr || typeof qrcode === 'undefined') return;
+      const url = urlDoLink(linkDoQr);
       const qr = qrcode(0, 'M');
       qr.addData(url);
       qr.make();
       const dataUrl = qr.createDataURL(12, 4);
       const img = el('img'); img.src = dataUrl; img.alt = 'QR Code para ' + url;
       box.append(img);
+      $('qr-titulo').textContent = linkDoQr.slug ? `QR Code de /${linkDoQr.slug}` : 'QR Code principal';
+      $('qr-url').textContent = url.replace(/^https?:\/\//, '');
+      $('qr-destino').textContent = `Hoje leva para: ${nomeDestino(linkDoQr.destino)}`;
       $('baixar-qr').href = dataUrl;
+      $('baixar-qr').download = `qrcode-${linkDoQr.slug || 'principal'}.gif`;
     }
-    $('qr-url').oninput = gerarQr;
-    $('qr-url').value = location.origin + '/';
-    gerarQr();
+
+    let linkEditando = null;
+    function abrirLink(l = null) {
+      linkEditando = l;
+      const d = $('dlg-link');
+      erroDialogo(d, '');
+      const principal = l && l.slug === '';
+      $('dlg-link-titulo').textContent = !l ? 'Novo link' : principal ? 'Editar link principal' : `Editar /${l.slug}`;
+      $('l-slug-campo').hidden = principal;
+      $('l-prefixo').textContent = baseUrl().replace(/^https?:\/\//, '') + '/';
+      $('l-slug').value = l ? l.slug : '';
+      const interno = !l || l.destino === '/sorteio';
+      $('l-tipo').value = interno ? '/sorteio' : 'url';
+      $('l-url').value = interno ? '' : l.destino;
+      $('l-url-campo').hidden = interno;
+      $('l-desc').value = l?.descricao || '';
+      d.showModal();
+    }
+    $('novo-link').onclick = () => abrirLink();
+    $('l-tipo').onchange = () => { $('l-url-campo').hidden = $('l-tipo').value !== 'url'; if (!$('l-url-campo').hidden) $('l-url').focus(); };
+
+    $('form-link').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = $('dlg-link');
+      const body = {
+        slug: $('l-slug').value,
+        destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/sorteio',
+        descricao: $('l-desc').value,
+      };
+      try {
+        const salvo = linkEditando
+          ? await api('PUT', `/api/admin/links/${linkEditando.id}`, body)
+          : await api('POST', '/api/admin/links', body);
+        d.close();
+        linkDoQr = salvo;
+        toast(linkEditando ? 'Link atualizado. O QR Code já abre o novo destino.' : 'Link criado.');
+        carregarLinks();
+      } catch (e) { erroDialogo(d, e.message); }
+    };
+
+    async function excluirLink(l) {
+      const ok = await confirmar(`Excluir /${l.slug}?`, 'QR Codes já impressos com este link vão parar de funcionar.', 'Excluir');
+      if (!ok) return;
+      try {
+        await api('DELETE', `/api/admin/links/${l.id}`);
+        toast('Link excluído.');
+        carregarLinks();
+      } catch (e) { toast(e.message, true); }
+    }
+
+    try { $('base-url').value = localStorage.getItem('base-url') || location.origin; } catch { $('base-url').value = location.origin; }
+    $('base-url').oninput = () => {
+      try { localStorage.setItem('base-url', $('base-url').value.trim()); } catch {}
+      renderLinks();
+    };
 
     // ---------- início ----------
 
@@ -732,6 +878,7 @@
       await carregarEu();
       let aba = 'sorteio';
       try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
+      if (aba === 'qr') aba = 'links';
       if (!ehAdmin() && ['usuarios', 'atividade'].includes(aba)) aba = 'sorteio';
       abrirAba(aba);
       await carregar();

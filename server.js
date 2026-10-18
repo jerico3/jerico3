@@ -84,6 +84,17 @@ db.exec(`
     detalhe       TEXT,
     criado_em     TEXT NOT NULL DEFAULT (datetime('now'))
   );
+  -- Links "coringa": o QR Code impresso aponta para o link, e o destino pode mudar a qualquer momento.
+  -- O link de endereço vazio é o principal (a raiz do site).
+  CREATE TABLE IF NOT EXISTS links (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    slug           TEXT NOT NULL UNIQUE,
+    destino        TEXT NOT NULL,
+    descricao      TEXT,
+    cliques        INTEGER NOT NULL DEFAULT 0,
+    atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/sorteio', 'Link principal (QR Code impresso)');
 `);
 
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em';
@@ -139,6 +150,14 @@ const q = {
 
   insertLog: db.prepare('INSERT INTO auditoria (usuario_id, usuario_nome, acao, detalhe) VALUES (?, ?, ?, ?)'),
   logs: db.prepare('SELECT id, usuario_nome, acao, detalhe, criado_em FROM auditoria ORDER BY id DESC LIMIT 300'),
+
+  links: db.prepare('SELECT id, slug, destino, descricao, cliques, atualizado_em FROM links ORDER BY slug <> \'\', slug'),
+  linkById: db.prepare('SELECT id, slug, destino, descricao, cliques, atualizado_em FROM links WHERE id = ?'),
+  linkBySlug: db.prepare('SELECT id, destino FROM links WHERE slug = ?'),
+  insertLink: db.prepare('INSERT INTO links (slug, destino, descricao) VALUES (?, ?, ?)'),
+  updateLink: db.prepare("UPDATE links SET slug = ?, destino = ?, descricao = ?, atualizado_em = datetime('now') WHERE id = ?"),
+  deleteLink: db.prepare('DELETE FROM links WHERE id = ?'),
+  countClick: db.prepare('UPDATE links SET cliques = cliques + 1 WHERE id = ?'),
 };
 
 function registrar(usuario, acao, detalhe = null) {
@@ -614,12 +633,101 @@ rota('DELETE', '/api/admin/usuarios/:id', (req, res, { id }) => {
   json(res, 200, { ok: true });
 });
 
+// --- links / QR Code dinâmico ---
+
+// Endereços que já são páginas do app e não podem virar link.
+const SLUGS_RESERVADOS = new Set(['admin', 'login', 'sorteio', 'api', 'vendor']);
+
+function normalizeLink(body, { principal }) {
+  const slug = principal ? '' : String(body.slug || '').trim().toLowerCase().replace(/^\/+/, '');
+  const destino = String(body.destino || '').trim();
+  const descricao = String(body.descricao || '').trim().slice(0, 120) || null;
+  const errors = [];
+  if (!principal) {
+    if (!/^[a-z0-9-]{1,40}$/.test(slug)) errors.push('O endereço do link deve ter só letras minúsculas, números e hífen.');
+    else if (SLUGS_RESERVADOS.has(slug)) errors.push(`"/${slug}" já é usado pelo sistema. Escolha outro endereço.`);
+  }
+  // Só destinos internos ("/sorteio") ou páginas http(s); nada de javascript: e afins.
+  let ok = /^\/[^/\\]/.test(destino) && destino.length <= 500;
+  if (!ok) {
+    try {
+      const u = new URL(destino);
+      ok = (u.protocol === 'https:' || u.protocol === 'http:') && destino.length <= 2000;
+    } catch {}
+  }
+  if (!ok) errors.push('Informe um destino válido, começando com https:// (ou /sorteio para o formulário).');
+  if (!errors.length && destino === '/' + slug) errors.push('O link não pode apontar para ele mesmo.');
+  return { slug, destino, descricao, errors };
+}
+
+rota('GET', '/api/admin/links', (req, res) => {
+  if (!exigirUsuario(req, res)) return;
+  json(res, 200, q.links.all());
+});
+
+rota('POST', '/api/admin/links', async (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const d = normalizeLink(await readJson(req).catch(() => ({})), { principal: false });
+  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
+  try {
+    const r = q.insertLink.run(d.slug, d.destino, d.descricao);
+    registrar(u, 'link.criado', `/${d.slug} → ${d.destino}`);
+    json(res, 201, q.linkById.get(Number(r.lastInsertRowid)));
+  } catch (e) {
+    if (ehConflitoUnico(e)) return json(res, 409, { erro: 'Já existe um link com este endereço.' });
+    throw e;
+  }
+});
+
+rota('PUT', '/api/admin/links/:id', async (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const antes = q.linkById.get(id);
+  if (!antes) return json(res, 404, { erro: 'Link não encontrado.' });
+  const d = normalizeLink(await readJson(req).catch(() => ({})), { principal: antes.slug === '' });
+  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
+  try {
+    q.updateLink.run(d.slug, d.destino, d.descricao, id);
+  } catch (e) {
+    if (ehConflitoUnico(e)) return json(res, 409, { erro: 'Já existe um link com este endereço.' });
+    throw e;
+  }
+  const mudancas = [];
+  if (antes.slug !== d.slug) mudancas.push(`endereço: /${antes.slug} → /${d.slug}`);
+  if (antes.destino !== d.destino) mudancas.push(`destino: ${antes.destino} → ${d.destino}`);
+  registrar(u, 'link.editado', `/${d.slug} · ${mudancas.join('; ') || 'só a descrição'}`);
+  json(res, 200, q.linkById.get(id));
+});
+
+rota('DELETE', '/api/admin/links/:id', (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const link = q.linkById.get(id);
+  if (!link) return json(res, 404, { erro: 'Link não encontrado.' });
+  if (link.slug === '') return json(res, 409, { erro: 'O link principal não pode ser excluído, só ter o destino trocado.' });
+  q.deleteLink.run(id);
+  registrar(u, 'link.excluido', `/${link.slug} → ${link.destino}`);
+  json(res, 200, { ok: true });
+});
+
+// Redireciona um link para o destino atual. 302 + no-store para os celulares não guardarem o
+// destino: assim a troca no painel vale na hora para o QR Code já impresso.
+function redirecionarLink(res, link) {
+  q.countClick.run(link.id);
+  send(res, 302, '', { Location: link.destino, 'Cache-Control': 'no-store' });
+}
+
 rota('GET', '/api/admin/auditoria', (req, res) => {
   if (!exigirUsuario(req, res, 'admin')) return;
   json(res, 200, q.logs.all());
 });
 
 // --- páginas ---
+
+rota('GET', '/', (req, res) => redirecionarLink(res, q.linkBySlug.get('') || { id: 0, destino: '/sorteio' }));
+
+rota('GET', '/sorteio', (req, res) => serveFile(res, 'index.html'));
 
 rota('GET', '/login', (req, res) => {
   if (usuarioDaSessao(req)) return redirect(res, '/admin');
@@ -661,7 +769,10 @@ const server = http.createServer(async (req, res) => {
       if (m) return await r.handler(req, res, Object.fromEntries(r.keys.map((k, i) => [k, Number(m[i + 1])])));
     }
     if (req.method !== 'GET') return send(res, 405, 'Método não permitido');
-    if (pathname === '/' || pathname === '/index.html') return serveFile(res, 'index.html');
+    if (pathname === '/index.html') return redirect(res, '/sorteio');
+    const slug = pathname.toLowerCase().match(/^\/([a-z0-9-]{1,40})\/?$/);
+    const link = slug && q.linkBySlug.get(slug[1]);
+    if (link) return redirecionarLink(res, link);
     if (pathname === '/admin.html') return redirect(res, '/admin');
     if (pathname === '/login.html') return redirect(res, '/login');
     return serveFile(res, decodeURIComponent(pathname).replace(/^\/+/, ''));

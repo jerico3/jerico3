@@ -6,6 +6,9 @@ painel administrativo, com login por usuário, mostra a lista, permite corrigir 
 exporta CSV, gera o QR Code da página e faz o sorteio pelo código, **separado por dia de evento**: cada
 sorteio considera só quem se cadastrou naquele dia.
 
+O QR Code é **dinâmico**: ele aponta para um link do próprio site, e o destino desse link pode ser
+trocado no painel a qualquer momento (o formulário hoje, o Instagram amanhã) sem reimprimir nada.
+
 ## Imagem de fundo
 
 `public/fundo.webp` é o fundo da tela do formulário (interior do carro com a logo da importadora,
@@ -20,7 +23,8 @@ Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`
 ADMIN_EMAIL=voce@empresa.com ADMIN_PASSWORD=uma-senha-forte EVENT_NAME="Importadora" npm start
 ```
 
-- Página de cadastro: `http://localhost:3000/`
+- Link principal (o do QR Code): `http://localhost:3000/` → por padrão leva ao formulário
+- Formulário do sorteio: `http://localhost:3000/sorteio`
 - Painel: `http://localhost:3000/admin` (redireciona para o login em `/login`)
 
 Na primeira vez que o app sobe com o banco vazio, ele cria um **administrador** com `ADMIN_EMAIL` e
@@ -43,7 +47,7 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 
 ## Funcionalidades
 
-**Página de cadastro (`/`)**
+**Formulário do sorteio (`/sorteio`)**
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
@@ -68,8 +72,11 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 - **Dia do evento**: escolha a data e o painel passa a mostrar só os cadastros daquele dia
   (contagem, lista, CSV e sorteio). Abre no dia de hoje.
 - Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
-- QR Code da página, com download da imagem e versão para impressão (botão **Imprimir**).
-  Confira se o endereço no campo é o endereço público antes de imprimir.
+- **Links e QR Code**: o link principal (`/`, o do QR impresso) e links extras (`/instagram`,
+  `/whatsapp`…), cada um com destino editável, contagem de acessos e QR Code para baixar ou imprimir.
+  O redirecionamento é temporário (302, sem cache), então a troca de destino vale na hora, inclusive
+  para quem já escaneou antes. Só administradores criam e editam links. Confira o domínio público
+  no campo da aba antes de imprimir.
 - **Sortear**: escolhe um código aleatório entre os cadastros do dia escolhido ainda não sorteados
   (gerador criptográfico `crypto.randomInt`), com animação de roleta. Os sorteados ficam no
   histórico e não concorrem de novo; **Reiniciar histórico** (só administradores) limpa o histórico.
@@ -88,4 +95,4 @@ docker run -p 3000:3000 -v sorteio-data:/app/data \
   -e ADMIN_EMAIL=voce@empresa.com -e ADMIN_PASSWORD=uma-senha-forte -e EVENT_NAME="Importadora" sorteio
 ```
 
-Depois de publicado, abra `/admin`, confira o endereço no campo do QR Code e imprima.
+Depois de publicado, abra `/admin` → **Links e QR Code**, confira o domínio público e imprima.
