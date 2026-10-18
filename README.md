@@ -7,8 +7,9 @@ painel administrativo mostra a lista, exporta CSV, gera o QR Code da página e f
 
 ## Imagem de fundo
 
-`public/fundo.jpg` (opcional): foto do fundo da tela do formulário (o interior do carro, no design).
-Ela recebe um degradê azul por cima; sem o arquivo, fica só o degradê.
+`public/fundo.webp` é o fundo da tela do formulário (interior do carro com a logo da importadora,
+exportado do Figma). Para trocar, substitua o arquivo mantendo a logo na mesma posição, ou ajuste o
+`padding` de `.tela-form` em `public/index.html`.
 
 Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`node:sqlite`).
 
@@ -37,7 +38,7 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 ## Funcionalidades
 
 **Página de cadastro (`/`)**
-- Layout do Figma, por enquanto sem a logo, com a frase "Preencha seu cadastro e concorra a brindes exclusivos".
+- Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
 - Ao clicar em **Enviar**, a pessoa vê a tela "Seu código de participação" com o código.

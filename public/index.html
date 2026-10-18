@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1550">
+  <meta name="theme-color" content="#011250">
   <title>Cadastro · Concorra a brindes</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
   <style>
     :root {
-      --navy: #0b1550;
+      --navy: #011250; /* mesma cor da base da imagem de fundo */
       --navy-2: #0a1a80;
-      --blue: #1b3fc0;
       --label: #0a1a80;
       --input-border: #cfd5df;
       --placeholder: #a7afbd;
@@ -35,12 +34,12 @@
     /* ---------- Tela 1: formulário ---------- */
     .tela-form {
       min-height: 100dvh;
-      padding: 56px 16px 48px;
-      /* Foto opcional em public/fundo.jpg; sem ela fica só o degradê azul. */
-      background:
-        linear-gradient(180deg, rgba(27, 63, 192, .55) 0%, rgba(11, 21, 80, .92) 55%, var(--navy) 100%),
-        url('/fundo.jpg') center top / cover no-repeat,
-        linear-gradient(180deg, var(--blue) 0%, var(--navy) 60%);
+      /* A imagem (com a logo) ocupa a largura da tela, com no mínimo 900px para a logo não ficar
+         pequena no celular. A base da imagem tem a cor --navy, então ela emenda com o fundo. */
+      --fundo-largura: max(100vw, 900px);
+      /* A logo termina a 12,9% da largura da imagem; o título começa logo abaixo dela. */
+      padding: calc(var(--fundo-largura) * .129 + 28px) 16px 48px;
+      background: var(--navy) url('/fundo.webp') center top / var(--fundo-largura) auto no-repeat;
     }
     h1 {
       margin: 0 auto 28px;
@@ -190,7 +189,7 @@
   <main class="tela-codigo" id="tela-codigo" hidden aria-live="polite">
     <div class="resultado">
       <div class="ok" aria-hidden="true">
-        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0b1550" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#011250" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
       </div>
       <h2>SEU CÓDIGO DE PARTICIPAÇÃO</h2>
       <div class="codigo" id="codigo">VW-0000</div>
