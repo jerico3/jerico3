@@ -8,6 +8,7 @@
     "node": ">=22.13"
   },
   "scripts": {
+    "build": "echo \"Nada para compilar\"",
     "start": "node --disable-warning=ExperimentalWarning server.js",
     "dev": "ADMIN_PASSWORD=admin node --watch --disable-warning=ExperimentalWarning server.js"
   }
