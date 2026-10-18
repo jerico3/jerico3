@@ -5,12 +5,10 @@ recebe na hora um **código de participação** (`VW-0001`, `VW-0002`, …), que
 painel administrativo mostra a lista, exporta CSV, gera o QR Code da página e faz o sorteio pelo código,
 **separado por dia de evento**: cada sorteio considera só quem se cadastrou naquele dia.
 
-## Imagens do design
+## Imagem de fundo
 
-- `public/logo.png`: logo da importadora em **branco**, com fundo transparente (as duas telas são
-  azul-escuras). Sem esse arquivo, a página mostra o `EVENT_NAME` no lugar da logo.
-- `public/fundo.jpg` (opcional): foto do fundo da tela do formulário (o interior do carro, no
-  design). Ela recebe um degradê azul por cima; sem o arquivo, fica só o degradê.
+`public/fundo.jpg` (opcional): foto do fundo da tela do formulário (o interior do carro, no design).
+Ela recebe um degradê azul por cima; sem o arquivo, fica só o degradê.
 
 Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`node:sqlite`).
 
@@ -30,7 +28,7 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 | Variável         | Padrão              | Descrição                                            |
 | ---------------- | ------------------- | ---------------------------------------------------- |
 | `ADMIN_PASSWORD` | _(vazio)_           | Senha do painel. Sem ela, o `/admin` fica bloqueado. |
-| `EVENT_NAME`     | `Sorteio`           | Nome exibido na página, no painel e no QR Code.      |
+| `EVENT_NAME`     | `Sorteio`           | Nome na aba do navegador, no painel e no QR Code.    |
 | `PORT`           | `3000`              | Porta HTTP.                                          |
 | `DB_PATH`        | `./data/sorteio.db` | Arquivo do banco SQLite.                             |
 | `CODE_PREFIX`    | `VW-`               | Prefixo do código de participação.                   |
@@ -39,7 +37,7 @@ Para desenvolvimento: `npm run dev` (senha `admin`, recarrega ao salvar).
 ## Funcionalidades
 
 **Página de cadastro (`/`)**
-- Layout do Figma: logo no topo e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
+- Layout do Figma, por enquanto sem a logo, com a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
 - Ao clicar em **Enviar**, a pessoa vê a tela "Seu código de participação" com o código.

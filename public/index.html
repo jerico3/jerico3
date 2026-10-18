@@ -35,20 +35,13 @@
     /* ---------- Tela 1: formulário ---------- */
     .tela-form {
       min-height: 100dvh;
-      padding: 40px 16px 48px;
+      padding: 56px 16px 48px;
       /* Foto opcional em public/fundo.jpg; sem ela fica só o degradê azul. */
       background:
         linear-gradient(180deg, rgba(27, 63, 192, .55) 0%, rgba(11, 21, 80, .92) 55%, var(--navy) 100%),
         url('/fundo.jpg') center top / cover no-repeat,
         linear-gradient(180deg, var(--blue) 0%, var(--navy) 60%);
     }
-    .logo {
-      display: block;
-      margin: 0 auto 28px;
-      width: min(200px, 56vw);
-      height: auto;
-    }
-    .logo-texto { text-align: center; font-weight: 800; font-size: 1.6rem; margin-bottom: 24px; }
     h1 {
       margin: 0 auto 28px;
       text-align: center;
@@ -124,9 +117,6 @@
       display: flex;
       flex-direction: column;
     }
-    .tela-codigo .topo { display: flex; justify-content: flex-end; }
-    .tela-codigo .logo { width: min(130px, 36vw); margin: 0; }
-    .tela-codigo .logo-texto { font-size: 1.1rem; margin: 0; }
     .resultado {
       flex: 1;
       display: flex;
@@ -160,8 +150,6 @@
 </head>
 <body>
   <main class="tela-form" id="tela-form">
-    <img class="logo" src="/logo.png" alt="Logo da importadora">
-    <div class="logo-texto" hidden></div>
     <h1>Preencha seu cadastro e <strong>concorra a brindes exclusivos</strong></h1>
 
     <form class="card" id="form" novalidate>
@@ -200,10 +188,6 @@
   </main>
 
   <main class="tela-codigo" id="tela-codigo" hidden aria-live="polite">
-    <div class="topo">
-      <img class="logo" src="/logo.png" alt="Logo da importadora">
-      <div class="logo-texto" hidden></div>
-    </div>
     <div class="resultado">
       <div class="ok" aria-hidden="true">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#0b1550" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
@@ -317,13 +301,6 @@
       $('nome').focus();
     });
 
-    // Sem o arquivo public/logo.png, mostra o nome do evento no lugar da logo.
-    document.querySelectorAll('.logo').forEach((img) => {
-      const semLogo = () => { img.hidden = true; img.nextElementSibling.hidden = false; };
-      if (img.complete && !img.naturalWidth) semLogo();
-      else img.addEventListener('error', semLogo);
-    });
-
     function restaurar() {
       // Reabrir a página (ou escanear o QR de novo) no mesmo dia mostra o código já recebido.
       // Em outro dia (outro evento), a pessoa precisa se cadastrar de novo.
@@ -335,11 +312,7 @@
     fetch('/api/config').then((r) => r.json()).then((cfg) => {
       if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
       if (cfg.hoje) hoje = cfg.hoje;
-      if (cfg.evento) {
-        document.title = `${cfg.evento} · Cadastro`;
-        document.querySelectorAll('.logo').forEach((img) => { img.alt = cfg.evento; });
-        document.querySelectorAll('.logo-texto').forEach((el) => { el.textContent = cfg.evento; });
-      }
+      if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
     }).catch(() => {}).finally(restaurar);
   </script>
 </body>
