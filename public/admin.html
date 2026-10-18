@@ -1,0 +1,238 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Admin do sorteio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎲</text></svg>">
+  <script src="/vendor/qrcode.js"></script>
+  <style>
+    :root {
+      --bg: #f8fafc; --card: #fff; --text: #0f172a; --muted: #64748b;
+      --border: #e2e8f0; --primary: #6d28d9; --primary-dark: #5b21b6;
+      --accent: #f59e0b; --danger: #b91c1c;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg: #0b0f1a; --card: #131a2a; --text: #e2e8f0; --muted: #94a3b8; --border: #1e293b; --primary: #8b5cf6; --primary-dark: #7c3aed; --danger: #fca5a5; }
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.5; }
+    .wrap { max-width: 1100px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { margin: 0 0 4px; font-size: 1.6rem; }
+    .sub { color: var(--muted); margin: 0 0 24px; }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); margin-bottom: 16px; }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 14px; padding: 20px; }
+    .card h2 { margin: 0 0 12px; font-size: 1rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+    .big { font-size: 3rem; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+    button, .btn {
+      display: inline-block; font: inherit; font-weight: 600; padding: 10px 16px; border-radius: 10px;
+      border: 1px solid var(--border); background: transparent; color: var(--text); cursor: pointer; text-decoration: none;
+    }
+    button.primary { background: var(--primary); border-color: var(--primary); color: #fff; }
+    button.primary:hover { background: var(--primary-dark); }
+    button.danger { color: var(--danger); }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    #qr { background: #fff; padding: 12px; border-radius: 12px; display: inline-block; line-height: 0; }
+    #qr img { width: 200px; height: 200px; image-rendering: pixelated; }
+    input[type=url], input[type=search] { font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--border); background: transparent; color: inherit; width: 100%; }
+    .winner { text-align: center; padding: 16px; border: 2px dashed var(--accent); border-radius: 12px; margin-top: 16px; }
+    .winner .num { font-size: 3.5rem; font-weight: 800; color: var(--primary); line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .winner .name { font-size: 1.3rem; font-weight: 700; }
+    .rolling .num { opacity: .6; }
+    table { width: 100%; border-collapse: collapse; font-size: .92rem; }
+    th, td { text-align: left; padding: 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    th { color: var(--muted); font-weight: 600; font-size: .8rem; text-transform: uppercase; letter-spacing: .05em; }
+    td.num-col { font-variant-numeric: tabular-nums; font-weight: 700; }
+    .table-wrap { overflow-x: auto; }
+    .tag { display: inline-block; background: var(--accent); color: #1f1300; font-size: .72rem; font-weight: 700; padding: 2px 8px; border-radius: 999px; margin-left: 6px; }
+    .muted { color: var(--muted); }
+    ol.draws { margin: 12px 0 0; padding-left: 20px; }
+    @media print {
+      body * { visibility: hidden; }
+      #qr-card, #qr-card * { visibility: visible; }
+      #qr-card { position: absolute; inset: 0; border: 0; text-align: center; }
+      #qr-card .row, #qr-card input { display: none; }
+      #qr img { width: 360px; height: 360px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1 id="titulo">Painel do sorteio</h1>
+    <p class="sub">Acompanhe os cadastros, gere o QR Code e realize o sorteio pelo número de cadastro.</p>
+
+    <div class="grid">
+      <section class="card">
+        <h2>Participantes</h2>
+        <div class="big" id="total">–</div>
+        <p class="muted" id="elegiveis"></p>
+        <div class="row">
+          <button id="atualizar">Atualizar</button>
+          <a class="btn" href="/api/admin/participantes.csv">Baixar CSV</a>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Sorteio</h2>
+        <div class="row">
+          <button class="primary" id="sortear">🎲 Sortear agora</button>
+          <button class="danger" id="reiniciar" title="Apaga o histórico de sorteados">Reiniciar</button>
+        </div>
+        <div class="winner" id="vencedor" hidden>
+          <div class="muted">Número sorteado</div>
+          <div class="num" id="v-num"></div>
+          <div class="name" id="v-nome"></div>
+          <div class="muted" id="v-contato"></div>
+        </div>
+        <ol class="draws" id="historico"></ol>
+      </section>
+
+      <section class="card" id="qr-card">
+        <h2>QR Code da página</h2>
+        <div id="qr"></div>
+        <p style="margin:12px 0 8px"><strong id="qr-titulo"></strong><br><span class="muted">Escaneie para participar</span></p>
+        <input type="url" id="qr-url" aria-label="Endereço do QR Code">
+        <div class="row" style="margin-top:8px">
+          <a class="btn" id="baixar-qr" download="qrcode-sorteio.gif">Baixar imagem</a>
+          <button onclick="window.print()">Imprimir</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="card">
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <h2 style="margin:0">Lista de cadastros</h2>
+        <input type="search" id="busca" placeholder="Buscar por nome, telefone ou número" style="max-width:320px">
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Nº</th><th>Nome</th><th>Telefone</th><th>E-mail</th><th>Cadastro</th></tr></thead>
+          <tbody id="lista"><tr><td colspan="5" class="muted">Carregando…</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const fmtId = (id) => '#' + String(id).padStart(4, '0');
+    const fmtTel = (t) => t.length === 11 ? `(${t.slice(0,2)}) ${t.slice(2,7)}-${t.slice(7)}`
+      : t.length === 10 ? `(${t.slice(0,2)}) ${t.slice(2,6)}-${t.slice(6)}` : t;
+    const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR');
+    let estado = { participantes: [], sorteios: [] };
+
+    function el(tag, text, cls) {
+      const e = document.createElement(tag);
+      if (text != null) e.textContent = text;
+      if (cls) e.className = cls;
+      return e;
+    }
+
+    function renderLista() {
+      const termo = $('busca').value.trim().toLowerCase();
+      const termoNum = termo.replace(/\D/g, '');
+      const sorteados = new Set(estado.sorteios.map((s) => s.id));
+      const tbody = $('lista');
+      tbody.replaceChildren();
+      const lista = estado.participantes.filter((p) => !termo
+        || p.nome.toLowerCase().includes(termo)
+        || (termoNum && (p.telefone.includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
+      if (!lista.length) {
+        const tr = el('tr'); const td = el('td', 'Nenhum cadastro encontrado.', 'muted'); td.colSpan = 5;
+        tr.append(td); tbody.append(tr); return;
+      }
+      for (const p of lista) {
+        const tr = el('tr');
+        const nome = el('td', p.nome);
+        if (sorteados.has(p.id)) nome.append(el('span', 'sorteado', 'tag'));
+        tr.append(el('td', fmtId(p.id), 'num-col'), nome, el('td', fmtTel(p.telefone)),
+          el('td', p.email || '—'), el('td', fmtData(p.criado_em)));
+        tbody.append(tr);
+      }
+    }
+
+    function renderHistorico() {
+      const ol = $('historico');
+      ol.replaceChildren(...estado.sorteios.map((s) =>
+        el('li', `${fmtId(s.id)} — ${s.nome} (${fmtData(s.sorteado_em)})`)));
+    }
+
+    async function carregar() {
+      const res = await fetch('/api/admin/participantes');
+      if (!res.ok) { $('lista').innerHTML = '<tr><td colspan="5">Sessão expirada. Recarregue a página.</td></tr>'; return; }
+      estado = await res.json();
+      $('total').textContent = estado.total;
+      const elegiveis = estado.total - estado.sorteios.length;
+      $('elegiveis').textContent = `${elegiveis} elegíve${elegiveis === 1 ? 'l' : 'is'} para o próximo sorteio`;
+      $('sortear').disabled = elegiveis === 0;
+      renderLista();
+      renderHistorico();
+    }
+
+    async function sortear() {
+      const btn = $('sortear');
+      btn.disabled = true;
+      const box = $('vencedor');
+      box.hidden = false;
+      box.classList.add('rolling');
+      $('v-nome').textContent = 'Sorteando…';
+      $('v-contato').textContent = '';
+
+      const req = fetch('/api/admin/sortear', { method: 'POST' }).then(async (r) => ({ ok: r.ok, data: await r.json() }));
+      // Animação de "roleta" com os números cadastrados enquanto o servidor sorteia.
+      const ids = estado.participantes.map((p) => p.id);
+      const fim = Date.now() + 2500;
+      while (Date.now() < fim && ids.length) {
+        $('v-num').textContent = fmtId(ids[Math.floor(Math.random() * ids.length)]);
+        await new Promise((r) => setTimeout(r, 70));
+      }
+      const { ok, data } = await req;
+      box.classList.remove('rolling');
+      if (!ok) { $('v-num').textContent = '—'; $('v-nome').textContent = data.erro; btn.disabled = false; return; }
+      const v = data.vencedor;
+      $('v-num').textContent = fmtId(v.id);
+      $('v-nome').textContent = v.nome;
+      $('v-contato').textContent = [fmtTel(v.telefone), v.email].filter(Boolean).join(' · ');
+      await carregar();
+    }
+
+    async function reiniciar() {
+      if (!confirm('Apagar o histórico de sorteados? Todos voltarão a concorrer.')) return;
+      await fetch('/api/admin/reiniciar-sorteios', { method: 'POST' });
+      $('vencedor').hidden = true;
+      carregar();
+    }
+
+    function gerarQr() {
+      const url = $('qr-url').value.trim();
+      const box = $('qr');
+      box.replaceChildren();
+      if (!url || typeof qrcode === 'undefined') return;
+      const qr = qrcode(0, 'M');
+      qr.addData(url);
+      qr.make();
+      const dataUrl = qr.createDataURL(12, 4);
+      const img = el('img'); img.src = dataUrl; img.alt = 'QR Code para ' + url;
+      box.append(img);
+      $('baixar-qr').href = dataUrl;
+    }
+
+    $('atualizar').onclick = carregar;
+    $('sortear').onclick = sortear;
+    $('reiniciar').onclick = reiniciar;
+    $('busca').oninput = renderLista;
+    $('qr-url').oninput = gerarQr;
+    $('qr-url').value = location.origin + '/';
+
+    fetch('/api/config').then((r) => r.json()).then(({ evento }) => {
+      $('titulo').textContent = `Painel · ${evento}`;
+      $('qr-titulo').textContent = evento;
+    }).catch(() => {});
+
+    gerarQr();
+    carregar();
+    setInterval(carregar, 15000);
+  </script>
+</body>
+</html>

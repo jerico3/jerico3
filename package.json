@@ -1,0 +1,14 @@
+{
+  "name": "sorteio-cadastro",
+  "version": "1.0.0",
+  "description": "Landing page de cadastro para sorteio (acesso via QR Code) com painel de sorteio por número de cadastro",
+  "main": "server.js",
+  "private": true,
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning server.js",
+    "dev": "ADMIN_PASSWORD=admin node --watch --disable-warning=ExperimentalWarning server.js"
+  }
+}
