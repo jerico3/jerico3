@@ -663,7 +663,7 @@
 
     // ---------- sorteio ----------
 
-    // Abre a tela de sorteio (Fusca, Kombi, placa girando, confete e buzina) por cima do painel.
+    // Abre uma janela simples com o ganhador por cima do painel.
     async function sortear() {
       const sorteados = new Set(estado.sorteios.map((s) => s.id));
       const elegiveis = estado.participantes.filter(doDia).filter((p) => !sorteados.has(p.id));

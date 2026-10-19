@@ -152,9 +152,8 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
     `utm_source=qrcode&utm_medium=qr&utm_campaign=<link>`, para o Google Analytics mostrar que o
     acesso veio do QR Code. Endereços que já têm UTM não são alterados.
 - **Sortear**: escolhe um código aleatório entre os cadastros do dia escolhido ainda não sorteados
-  (gerador criptográfico `crypto.randomInt`). Abre uma tela por cima do painel (que fica desfocado)
-  com Fusca e Kombi na estrada, a placa Mercosul girando os códigos, rufar de tambor, buzina e
-  confete na revelação, e o botão **Sortear outro**. O som (gerado no navegador) pode ser desligado. Os sorteados ficam no
+  (gerador criptográfico `crypto.randomInt`). O ganhador aparece numa janela por cima do painel
+  (que fica desfocado), com o botão **Sortear outro**. Os sorteados ficam no
   histórico e não concorrem de novo; **Reiniciar histórico** (só administradores) limpa o histórico.
 
 ## Publicação
