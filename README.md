@@ -58,7 +58,8 @@ autenticador no primeiro login; recarrega ao salvar).
 | `SMTP_PASS`      | _(vazio)_           | Senha dessa conta de e-mail.                         |
 | `SMTP_FROM`      | `SMTP_USER`         | Remetente, se for diferente do usuário.              |
 | `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
-| `TOTP_EMISSOR`   | `Importadora Link`  | Nome da conta que aparece no app autenticador.       |
+| `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails.   |
+| `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
 
 Sem `SMTP_*`, o painel continua funcionando: o convite vira um link para o administrador copiar e
 enviar, e "Esqueci minha senha" avisa que a recuperação por e-mail não está configurada. Os links dos

@@ -13,7 +13,7 @@ const cfg = {
   user: process.env.SMTP_USER || '',
   pass: process.env.SMTP_PASS || '',
   from: process.env.SMTP_FROM || process.env.SMTP_USER || '',
-  fromName: process.env.SMTP_NOME || process.env.EVENT_NAME || 'Painel do sorteio',
+  fromName: process.env.SMTP_NOME || process.env.APP_NOME || 'Importadora Link',
 };
 // Porta 465 = SSL desde o início; nas outras, o servidor é atualizado para TLS com STARTTLS.
 cfg.secure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : cfg.port === 465;

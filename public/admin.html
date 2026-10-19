@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
-  <title>Painel do sorteio</title>
+  <title>Central de Gestão · Importadora Link</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -171,7 +171,7 @@
   <header class="topbar">
     <div class="topbar-inner">
       <div class="linha1">
-        <div class="marca"><strong>Painel do sorteio</strong><span id="evento"></span></div>
+        <div class="marca"><strong id="app-nome">Importadora Link</strong><span>Central de Gestão</span></div>
         <div class="conta">
           <span class="nome" id="me-nome"></span><span class="papel" id="me-papel"></span>
           <button class="link-topo" id="abrir-senha">Alterar senha</button>
@@ -1117,8 +1117,10 @@
         let salvo = null;
         try { salvo = localStorage.getItem('base-url'); } catch {}
         if (cfg.publicUrl && !salvo) $('base-url').value = cfg.publicUrl;
-        $('evento').textContent = cfg.evento;
-        document.title = `Painel · ${cfg.evento}`;
+        if (cfg.app) {
+          $('app-nome').textContent = cfg.app;
+          document.title = `Central de Gestão · ${cfg.app}`;
+        }
       } catch {}
       await carregarEu();
       let aba = 'sorteio';

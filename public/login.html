@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#011250">
   <meta name="robots" content="noindex">
-  <title>Entrar · Painel do sorteio</title>
+  <title>Entrar · Importadora Link</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -117,8 +117,8 @@
 
     <!-- 1. E-mail e senha -->
     <section id="passo-senha">
-      <h1>Painel do sorteio</h1>
-      <p class="sub">Acesso restrito à equipe organizadora.</p>
+      <h1 data-app>Importadora Link</h1>
+      <p class="sub">Central de Gestão</p>
       <form id="form-senha" novalidate>
         <div class="campo">
           <label for="email">E-mail</label>
@@ -207,6 +207,11 @@
   <script>
     const $ = (id) => document.getElementById(id);
     let ticket = null;
+    fetch('/api/config').then((r) => r.json()).then((cfg) => {
+      if (!cfg.app) return;
+      document.querySelector('[data-app]').textContent = cfg.app;
+      document.title = `Entrar · ${cfg.app}`;
+    }).catch(() => {});
     let modoRecuperacao = false;
 
     function mostrarPasso(id) {
@@ -332,7 +337,7 @@
     // 3. códigos de recuperação
     function mostrarCodigos(codigos) {
       $('lista-codigos').replaceChildren(...codigos.map((c) => Object.assign(document.createElement('span'), { textContent: c })));
-      const texto = `Códigos de recuperação do painel do sorteio\n(cada um vale uma vez)\n\n${codigos.join('\n')}\n`;
+      const texto = `Códigos de recuperação · ${document.querySelector('[data-app]').textContent} · Central de Gestão\n(cada um vale uma vez)\n\n${codigos.join('\n')}\n`;
       $('copiar-codigos').onclick = async () => {
         try { await navigator.clipboard.writeText(texto); $('copiar-codigos').textContent = 'Copiado!'; } catch { $('copiar-codigos').textContent = 'Não foi possível copiar'; }
       };

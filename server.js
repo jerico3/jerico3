@@ -15,6 +15,8 @@ const PORT = Number(process.env.PORT) || 3000;
 const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'admin@sorteio.local').trim().toLowerCase();
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
 const EVENT_NAME = process.env.EVENT_NAME || 'Sorteio';
+// Nome do sistema (tela de login, painel, e-mails e app autenticador).
+const APP_NOME = process.env.APP_NOME || 'Importadora Link';
 // Endereço público usado para montar os links e QR Codes no painel (ex.: https://importadoravw.link).
 const PUBLIC_URL = (process.env.PUBLIC_URL || '').replace(/\/+$/, '');
 const CODE_PREFIX = process.env.CODE_PREFIX ?? 'VW-';
@@ -24,7 +26,7 @@ const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'sorteio.db'
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SESSION_HOURS = 12;
 // Nome que aparece no app autenticador (Google Authenticator etc.) ao lado do e-mail.
-const TOTP_EMISSOR = process.env.TOTP_EMISSOR || 'Importadora Link';
+const TOTP_EMISSOR = process.env.TOTP_EMISSOR || APP_NOME;
 // Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
 const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
@@ -526,7 +528,7 @@ function montarEmail({ titulo, paragrafos, botao, link, rodape }) {
   const html = `<!doctype html><html><body style="margin:0;background:#f4f6fa;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:12px;overflow:hidden">
-<tr><td style="background:#011250;color:#fff;padding:18px 24px;font-size:16px;font-weight:bold">${escHtml(EVENT_NAME)} · Painel do sorteio</td></tr>
+<tr><td style="background:#011250;color:#fff;padding:18px 24px;font-size:16px;font-weight:bold">${escHtml(APP_NOME)} · Central de Gestão</td></tr>
 <tr><td style="padding:24px">
 <h1 style="margin:0 0 12px;font-size:20px;color:#011250">${escHtml(titulo)}</h1>
 ${paragrafos.map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5">${escHtml(p)}</p>`).join('')}
@@ -566,10 +568,10 @@ async function enviarConvite(req, alvo, quemConvidou) {
   const link = `${urlBase(req, { confiarNoHost: true })}/definir-senha#t=${criarToken(alvo.id, 'convite')}`;
   if (!mailer.configurado()) return { enviado: false, link, motivo: 'O envio de e-mails não está configurado.' };
   try {
-    await enviarEmail(alvo.email, `Confirme seu acesso ao painel do sorteio — ${EVENT_NAME}`, {
+    await enviarEmail(alvo.email, `Confirme seu acesso — ${APP_NOME}`, {
       titulo: `Olá, ${alvo.nome.split(' ')[0]}!`,
       paragrafos: [
-        `${quemConvidou.nome} criou um acesso para você no painel do sorteio da ${EVENT_NAME}.`,
+        `${quemConvidou.nome} criou um acesso para você na Central de Gestão ${APP_NOME}.`,
         'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois, no primeiro login, você vai configurar a verificação em duas etapas com um app autenticador no celular.',
         'O link vale por 72 horas e só pode ser usado uma vez.',
       ],
@@ -586,10 +588,10 @@ async function enviarConvite(req, alvo, quemConvidou) {
 
 function avisarSenhaAlterada(usuario) {
   if (!mailer.configurado()) return;
-  enviarEmail(usuario.email, `Sua senha do painel foi alterada — ${EVENT_NAME}`, {
+  enviarEmail(usuario.email, `Sua senha foi alterada — ${APP_NOME}`, {
     titulo: 'Sua senha foi alterada',
     paragrafos: [
-      `A senha do seu acesso ao painel do sorteio (${usuario.email}) acabou de ser alterada.`,
+      `A senha do seu acesso à Central de Gestão ${APP_NOME} (${usuario.email}) acabou de ser alterada.`,
       'Se foi você, não precisa fazer nada. Se não foi, fale imediatamente com um administrador.',
     ],
   }).catch((e) => console.error('Falha ao enviar aviso de senha:', e.message));
@@ -636,6 +638,7 @@ function rota(method, pattern, handler) {
 
 rota('GET', '/api/config', (req, res) => json(res, 200, {
   evento: EVENT_NAME,
+  app: APP_NOME,
   prefixo: CODE_PREFIX,
   hoje: hoje(),
   publicUrl: PUBLIC_URL,
@@ -784,10 +787,10 @@ rota('POST', '/api/senha/esqueci', async (req, res) => {
   if (u && u.ativo) {
     const tipo = u.confirmado ? 'reset' : 'convite';
     const link = `${PUBLIC_URL}/definir-senha#t=${criarToken(u.id, tipo)}`;
-    enviarEmail(u.email, `Criar nova senha do painel — ${EVENT_NAME}`, {
+    enviarEmail(u.email, `Criar nova senha — ${APP_NOME}`, {
       titulo: 'Criar uma nova senha',
       paragrafos: [
-        `Recebemos um pedido para criar uma nova senha para ${u.email} no painel do sorteio.`,
+        `Recebemos um pedido para criar uma nova senha para ${u.email} na Central de Gestão ${APP_NOME}.`,
         'Clique no botão abaixo para escolher a nova senha. O link vale por 1 hora e só pode ser usado uma vez.',
         'A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.',
       ],
