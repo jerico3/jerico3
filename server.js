@@ -24,6 +24,10 @@ const CODE_PREFIX = process.env.CODE_PREFIX ?? 'VW-';
 const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'sorteio.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
+// Cópias de segurança automáticas do banco (por padrão numa pasta "backups" ao lado dele).
+const BACKUP_DIR = process.env.BACKUP_DIR || path.join(path.dirname(DB_PATH), 'backups');
+const BACKUP_MANTER = Math.max(1, Number(process.env.BACKUP_MANTER) || 28);
+const BACKUP_HORAS = Math.max(1, Number(process.env.BACKUP_HORAS) || 6);
 const SESSION_HOURS = 12;
 // Nome que aparece no app autenticador (Google Authenticator etc.) ao lado do e-mail.
 const TOTP_EMISSOR = process.env.TOTP_EMISSOR || APP_NOME;
@@ -131,6 +135,9 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(links)').all().some((c) => c.name === 'utm')) {
   db.exec('ALTER TABLE links ADD COLUMN utm INTEGER NOT NULL DEFAULT 1');
 }
+if (!db.prepare('PRAGMA table_info(acessos)').all().some((c) => c.name === 'navegador')) {
+  db.exec("ALTER TABLE acessos ADD COLUMN navegador TEXT NOT NULL DEFAULT 'outro'");
+}
 // Convite por e-mail (confirmado = 0 até a pessoa definir a senha) e verificação em duas etapas.
 for (const [col, tipo] of [
   ['confirmado', 'INTEGER NOT NULL DEFAULT 1'],
@@ -140,6 +147,8 @@ for (const [col, tipo] of [
   ['codigos_recuperacao', 'TEXT'],
   // Chave gerada no primeiro login e guardada até ser confirmada: o QR Code não muda entre tentativas.
   ['totp_pendente', 'TEXT'],
+  // Recebe e-mail a cada novo cadastro (só vale para administradores).
+  ['notif_cadastros', 'INTEGER NOT NULL DEFAULT 1'],
 ]) {
   if (!db.prepare('PRAGMA table_info(usuarios)').all().some((c) => c.name === col)) {
     db.exec(`ALTER TABLE usuarios ADD COLUMN ${col} ${tipo}`);
@@ -165,7 +174,7 @@ db.exec(`
 `);
 
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
-const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em, confirmado, totp_ativo';
+const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em, confirmado, totp_ativo, notif_cadastros';
 
 const q = {
   insert: db.prepare(`
@@ -227,7 +236,9 @@ const q = {
   tokensVencidos: db.prepare('DELETE FROM tokens_email WHERE expira_em <= ?'),
   hashById: db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?'),
   insertUser: db.prepare('INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)'),
-  updateUser: db.prepare('UPDATE usuarios SET nome = ?, email = ?, papel = ?, ativo = ? WHERE id = ?'),
+  updateUser: db.prepare('UPDATE usuarios SET nome = ?, email = ?, papel = ?, ativo = ?, notif_cadastros = ? WHERE id = ?'),
+  adminsNotificados: db.prepare("SELECT email FROM usuarios WHERE papel = 'admin' AND ativo = 1 AND confirmado = 1 AND notif_cadastros = 1"),
+  cadastrosPorDia: db.prepare('SELECT data_cadastro AS dia, COUNT(*) AS total FROM participantes WHERE data_cadastro >= ? GROUP BY data_cadastro'),
   updatePassword: db.prepare('UPDATE usuarios SET senha_hash = ? WHERE id = ?'),
   deleteUser: db.prepare('DELETE FROM usuarios WHERE id = ?'),
 
@@ -241,14 +252,17 @@ const q = {
   deleteExpiredSessions: db.prepare('DELETE FROM sessoes WHERE expira_em <= ?'),
 
   insertLog: db.prepare('INSERT INTO auditoria (usuario_id, usuario_nome, acao, detalhe) VALUES (?, ?, ?, ?)'),
-  logs: db.prepare('SELECT id, usuario_nome, acao, detalhe, criado_em FROM auditoria ORDER BY id DESC LIMIT 300'),
+  logs: db.prepare('SELECT id, usuario_nome, acao, detalhe, criado_em FROM auditoria ORDER BY criado_em DESC, id DESC LIMIT 300'),
 
   links: db.prepare('SELECT id, slug, destino, descricao, utm, cliques, atualizado_em FROM links ORDER BY slug <> \'\', slug'),
   linkById: db.prepare('SELECT id, slug, destino, descricao, utm, cliques, atualizado_em FROM links WHERE id = ?'),
   linkBySlug: db.prepare('SELECT id, slug, destino, utm FROM links WHERE slug = ?'),
   insertLink: db.prepare('INSERT INTO links (slug, destino, descricao, utm) VALUES (?, ?, ?, ?)'),
   updateLink: db.prepare("UPDATE links SET slug = ?, destino = ?, descricao = ?, utm = ?, atualizado_em = datetime('now') WHERE id = ?"),
-  insertAcesso: db.prepare('INSERT INTO acessos (link_id, dia, hora, dispositivo) VALUES (?, ?, ?, ?)'),
+  insertAcesso: db.prepare('INSERT INTO acessos (link_id, dia, hora, dispositivo, navegador) VALUES (?, ?, ?, ?, ?)'),
+  acessosPorNavegador: db.prepare(`
+    SELECT navegador, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ?
+    GROUP BY navegador ORDER BY total DESC`),
   acessosPorDia: db.prepare('SELECT dia, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ? GROUP BY dia'),
   acessosPorDispositivo: db.prepare(`
     SELECT dispositivo, COUNT(*) AS total FROM acessos WHERE link_id = ? AND dia >= ?
@@ -391,7 +405,9 @@ function readJson(req, limit = 10_000) {
 // site sempre passam por preflight, que este servidor não autoriza.
 function mesmaOrigem(req) {
   if (req.method === 'GET') return true;
-  if (req.method === 'POST' && !String(req.headers['content-type'] || '').startsWith('application/json')) return false;
+  // application/octet-stream (envio do arquivo de backup) também exige preflight de outro site.
+  const tipo = String(req.headers['content-type'] || '');
+  if (req.method === 'POST' && !tipo.startsWith('application/json') && !tipo.startsWith('application/octet-stream')) return false;
   const origin = req.headers.origin;
   if (!origin) return true;
   try {
@@ -513,7 +529,7 @@ function normalizeUsuario(body, { senhaObrigatoria }) {
   if (nome.length < 2 || nome.length > 80) errors.push('Informe o nome.');
   if (!emailValido(email)) errors.push('Informe um e-mail válido.');
   if ((senhaObrigatoria || senha) && senha.length < 8) errors.push('A senha precisa ter pelo menos 8 caracteres.');
-  return { nome, email, papel, senha, ativo: body.ativo === false ? 0 : 1, errors };
+  return { nome, email, papel, senha, ativo: body.ativo === false ? 0 : 1, notif: body.notifCadastros === false ? 0 : 1, errors };
 }
 
 const ehConflitoUnico = (e) => /UNIQUE constraint failed/.test(e.message || '');
@@ -627,6 +643,151 @@ function gerarCodigosRecuperacao() {
 
 const limiteEmail = criarLimitador(5, 60 * 60 * 1000);
 
+// Fila de e-mails: envia um de cada vez em segundo plano, para um pico de cadastros no evento não
+// abrir dezenas de conexões com o servidor de e-mail nem atrasar a resposta do formulário.
+let filaEmail = Promise.resolve();
+function enfileirarEmail(para, assunto, conteudo) {
+  if (!mailer.configurado()) return;
+  filaEmail = filaEmail
+    .then(() => enviarEmail(para, assunto, conteudo))
+    .catch((e) => console.error(`Falha ao enviar e-mail para ${para}:`, e.message));
+}
+
+// A cada cadastro: confirmação com o código para quem se inscreveu e aviso para os administradores
+// que deixaram ligada a opção "Receber e-mail a cada novo cadastro".
+function notificarCadastro(p) {
+  const cod = codigo(p.id);
+  enfileirarEmail(p.email, `Seu código de participação: ${cod} — ${EVENT_NAME}`, {
+    titulo: `Você está participando, ${p.nome.split(' ')[0]}!`,
+    paragrafos: [
+      `Seu cadastro no sorteio de brindes da ${EVENT_NAME} foi confirmado.`,
+      `Seu código de participação é ${cod}. Guarde este e-mail: o código será usado no sorteio do evento de ${diaBr(p.dia)}.`,
+      'Boa sorte!',
+    ],
+    rodape: `Você recebeu este e-mail porque se cadastrou no sorteio${PUBLIC_URL ? `. Saiba como usamos seus dados em ${PUBLIC_URL}/privacidade` : ''}.`,
+  });
+  const mascara = `***.${p.cpf.slice(3, 6)}.${p.cpf.slice(6, 9)}-**`;
+  for (const { email } of q.adminsNotificados.all()) {
+    enfileirarEmail(email, `Novo cadastro ${cod} — ${p.nome}`, {
+      titulo: `Novo cadastro: ${cod}`,
+      paragrafos: [
+        `Nome: ${p.nome}`,
+        `CPF: ${mascara} · Telefone: ${p.telefone} · E-mail: ${p.email}`,
+        `Evento de ${diaBr(p.dia)} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
+      ],
+      botao: 'Abrir o painel',
+      link: PUBLIC_URL ? `${PUBLIC_URL}/admin` : null,
+      rodape: 'Para não receber mais estes avisos, desmarque "Receber e-mail a cada novo cadastro" no seu usuário, na aba Usuários.',
+    });
+  }
+}
+
+// ---------- cópias de segurança (backup) do banco ----------
+
+// Inclui milissegundos e um sufixo aleatório: dois backups no mesmo segundo (ex.: o de segurança
+// feito logo antes de uma restauração) não podem ter o mesmo nome.
+const nomeBackup = (motivo) =>
+  `sorteio-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23)}-${crypto.randomBytes(2).toString('hex')}-${motivo}.db`;
+
+// VACUUM INTO grava uma cópia consistente do banco sem parar o app.
+function fazerBackup(motivo = 'auto') {
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  const arquivo = path.join(BACKUP_DIR, nomeBackup(motivo));
+  db.exec(`VACUUM INTO '${arquivo.replace(/'/g, "''")}'`);
+  const antigos = listarBackups().slice(BACKUP_MANTER);
+  for (const b of antigos) fs.rmSync(path.join(BACKUP_DIR, b.nome), { force: true });
+  return path.basename(arquivo);
+}
+
+function listarBackups() {
+  if (!fs.existsSync(BACKUP_DIR)) return [];
+  return fs.readdirSync(BACKUP_DIR)
+    .filter((n) => /^sorteio-[\w-]+\.db$/.test(n))
+    .map((nome) => {
+      const st = fs.statSync(path.join(BACKUP_DIR, nome));
+      return { nome, tamanho: st.size, criado_em: st.mtime.toISOString() };
+    })
+    .sort((a, b) => (a.criado_em < b.criado_em ? 1 : -1));
+}
+
+// Tabelas restauradas (sessões, tickets de login e links de e-mail não voltam: todos entram de novo).
+// A auditoria não é substituída: o histórico do backup é somado ao atual, para não perder o registro
+// do que aconteceu entre o backup e a restauração.
+const TABELAS_RESTAURAR = ['usuarios', 'participantes', 'sorteios', 'links', 'acessos'];
+
+// Confere se o arquivo é um banco deste sistema e conta o que ele tem.
+function inspecionarBackup(arquivo) {
+  const cab = Buffer.alloc(16);
+  const fd = fs.openSync(arquivo, 'r');
+  fs.readSync(fd, cab, 0, 16, 0);
+  fs.closeSync(fd);
+  if (cab.toString('latin1') !== 'SQLite format 3\u0000') throw new Error('O arquivo não é um banco de dados SQLite.');
+  const b = new DatabaseSync(arquivo, { readOnly: true });
+  try {
+    const tabelas = new Set(b.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map((t) => t.name));
+    if (!tabelas.has('participantes') || !tabelas.has('usuarios')) throw new Error('O arquivo não parece ser um backup deste sistema.');
+    const n = (t) => (tabelas.has(t) ? b.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n : 0);
+    const admins = b.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE papel = 'admin' AND ativo = 1").get().n;
+    if (!admins) throw new Error('O backup não tem nenhum administrador ativo; restaurar deixaria o painel sem acesso.');
+    return { participantes: n('participantes'), usuarios: n('usuarios'), sorteios: n('sorteios'), links: n('links') };
+  } finally {
+    b.close();
+  }
+}
+
+// Copia o conteúdo do backup para o banco em uso (sem trocar o arquivo, então o app não precisa
+// reiniciar). Antes, guarda uma cópia do estado atual para poder desfazer.
+function restaurarBackup(arquivo) {
+  const resumo = inspecionarBackup(arquivo);
+  const seguranca = fazerBackup('antes-de-restaurar');
+  db.exec('PRAGMA foreign_keys = OFF');
+  try {
+    db.exec(`ATTACH DATABASE '${arquivo.replace(/'/g, "''")}' AS origem`);
+    try {
+      transacao(() => {
+        db.exec('DELETE FROM sessoes; DELETE FROM login_tickets; DELETE FROM tokens_email;');
+        for (const t of TABELAS_RESTAURAR) {
+          const destino = db.prepare(`PRAGMA main.table_info(${t})`).all().map((c) => c.name);
+          const origem = new Set(db.prepare(`PRAGMA origem.table_info(${t})`).all().map((c) => c.name));
+          db.exec(`DELETE FROM main.${t}`);
+          if (!origem.size) continue;
+          // Só as colunas que existem nos dois lados: um backup de versão anterior também serve.
+          const cols = destino.filter((c) => origem.has(c)).join(', ');
+          db.exec(`INSERT INTO main.${t} (${cols}) SELECT ${cols} FROM origem.${t}`);
+        }
+        if (db.prepare("SELECT 1 FROM origem.sqlite_master WHERE name = 'auditoria'").get()) {
+          db.exec(`
+            INSERT INTO main.auditoria (usuario_id, usuario_nome, acao, detalhe, criado_em)
+            SELECT o.usuario_id, o.usuario_nome, o.acao, o.detalhe, o.criado_em FROM origem.auditoria o
+            WHERE NOT EXISTS (
+              SELECT 1 FROM main.auditoria a WHERE a.criado_em = o.criado_em AND a.acao = o.acao
+                AND a.detalhe IS o.detalhe AND a.usuario_nome IS o.usuario_nome)`);
+        }
+        // Mantém a numeração dos códigos (VW-0001…) continuando de onde o backup parou.
+        db.exec('DELETE FROM main.sqlite_sequence');
+        if (db.prepare("SELECT 1 FROM origem.sqlite_master WHERE name = 'sqlite_sequence'").get()) {
+          db.exec("INSERT INTO main.sqlite_sequence (name, seq) SELECT name, seq FROM origem.sqlite_sequence WHERE name <> 'auditoria'");
+        }
+        db.exec("INSERT INTO main.sqlite_sequence (name, seq) SELECT 'auditoria', COALESCE(MAX(id), 0) FROM main.auditoria");
+      });
+    } finally {
+      db.exec('DETACH DATABASE origem');
+    }
+  } finally {
+    db.exec('PRAGMA foreign_keys = ON');
+  }
+  return { ...resumo, seguranca };
+}
+
+function backupAutomatico() {
+  try {
+    const nome = fazerBackup('auto');
+    console.log(`Backup automático: ${path.join(BACKUP_DIR, nome)}`);
+  } catch (e) {
+    console.error('Falha no backup automático:', e.message);
+  }
+}
+
 // ---------- rotas ----------
 
 const routes = [];
@@ -680,7 +841,9 @@ rota('POST', '/api/cadastro', async (req, res) => {
     return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true });
   }
   const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
-  return json(res, 201, { id: Number(r.lastInsertRowid), nome: data.nome, data_cadastro: dia, jaCadastrado: false });
+  const id = Number(r.lastInsertRowid);
+  notificarCadastro({ id, ...data, dia });
+  return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false });
 });
 
 // --- login ---
@@ -1020,7 +1183,7 @@ rota('PUT', '/api/admin/usuarios/:id', async (req, res, { id }) => {
   // Senhas não são mais definidas pelo administrador: cada pessoa cria a sua pelo link do e-mail.
   try {
     transacao(() => {
-      q.updateUser.run(d.nome, d.email, d.papel, d.ativo, id);
+      q.updateUser.run(d.nome, d.email, d.papel, d.ativo, d.notif, id);
       // Desativar derruba as sessões abertas desse usuário.
       if (!d.ativo) q.deleteSessionsOf.run(id);
     });
@@ -1132,7 +1295,8 @@ rota('DELETE', '/api/admin/links/:id', (req, res, { id }) => {
 
 rota('GET', '/api/admin/links/:id/acessos', (req, res, { id }) => {
   if (!exigirUsuario(req, res)) return;
-  if (!q.linkById.get(id)) return json(res, 404, { erro: 'Link não encontrado.' });
+  const link = q.linkById.get(id);
+  if (!link) return json(res, 404, { erro: 'Link não encontrado.' });
   const dias = Math.min(Math.max(Number(new URL(req.url, 'http://localhost').searchParams.get('dias')) || 30, 1), 365);
   // Lista todos os dias do período (inclusive os sem acesso) para o gráfico não pular datas.
   const lista = [];
@@ -1144,12 +1308,32 @@ rota('GET', '/api/admin/links/:id/acessos', (req, res, { id }) => {
     dias: lista.map((dia) => ({ dia, total: porDia.get(dia) || 0 })),
     horas: Array.from({ length: 24 }, (_, h) => ({ hora: h, total: porHora.get(h) || 0 })),
     dispositivos: q.acessosPorDispositivo.all(id, inicio),
+    navegadores: q.acessosPorNavegador.all(id, inicio),
+    // Para links que levam ao formulário: quantos cadastros houve no período (conversão).
+    cadastros: link.destino === '/sorteio'
+      ? Object.fromEntries(q.cadastrosPorDia.all(inicio).map((r) => [r.dia, r.total]))
+      : null,
     hoje: hoje(),
   });
 });
 
 // Pré-visualizações de link (WhatsApp, redes sociais) e robôs não contam como acesso.
 const ROBO = /bot|crawl|spider|slurp|facebookexternalhit|whatsapp|telegram|slack|discord|skype|preview|curl|wget|python-requests|go-http-client/i;
+
+// Navegador ou app em que o link abriu. Apps como Instagram e Facebook abrem links no próprio
+// navegador interno e se identificam no User-Agent.
+function navegador(ua) {
+  if (/instagram/i.test(ua)) return 'instagram';
+  if (/FBAN|FBAV|FB_IAB/.test(ua)) return 'facebook';
+  if (/tiktok|musical_ly|bytedance/i.test(ua)) return 'tiktok';
+  if (/SamsungBrowser/.test(ua)) return 'samsung';
+  if (/EdgA?\/|EdgiOS/.test(ua)) return 'edge';
+  if (/OPR\/|Opera/.test(ua)) return 'opera';
+  if (/FxiOS|Firefox\//.test(ua)) return 'firefox';
+  if (/CriOS|Chrome\//.test(ua)) return 'chrome';
+  if (/Safari\//.test(ua)) return 'safari';
+  return 'outro';
+}
 
 function dispositivo(ua) {
   if (/iphone|ipad|ipod/i.test(ua)) return 'iphone';
@@ -1181,11 +1365,95 @@ function redirecionarLink(req, res, link) {
   if (link.id && !ROBO.test(ua)) {
     const agora = new Date();
     q.countClick.run(link.id);
-    q.insertAcesso.run(link.id, hoje(agora), horaLocal(agora), dispositivo(ua));
+    q.insertAcesso.run(link.id, hoje(agora), horaLocal(agora), dispositivo(ua), navegador(ua));
   }
   const destino = link.utm ? comUtm(link.destino, link.slug) : link.destino;
   send(res, 302, '', { Location: destino, 'Cache-Control': 'no-store' });
 }
+
+// --- backups ---
+
+rota('GET', '/api/admin/backups', (req, res) => {
+  if (!exigirUsuario(req, res, 'admin')) return;
+  json(res, 200, { pasta: path.resolve(BACKUP_DIR), manter: BACKUP_MANTER, horas: BACKUP_HORAS, backups: listarBackups() });
+});
+
+rota('POST', '/api/admin/backups', (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const nome = fazerBackup('manual');
+  registrar(u, 'backup.criado', nome);
+  json(res, 201, { nome });
+});
+
+const backupDoPedido = (req) => {
+  const nome = new URL(req.url, 'http://localhost').searchParams.get('nome') || '';
+  if (!/^sorteio-[\w-]+\.db$/.test(nome)) return null;
+  const arquivo = path.join(BACKUP_DIR, nome);
+  return fs.existsSync(arquivo) ? { nome, arquivo } : null;
+};
+
+rota('GET', '/api/admin/backups/baixar', (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const b = backupDoPedido(req);
+  if (!b) return json(res, 404, { erro: 'Backup não encontrado.' });
+  registrar(u, 'backup.baixado', b.nome);
+  res.writeHead(200, {
+    'Content-Type': 'application/octet-stream',
+    'Content-Disposition': `attachment; filename="${b.nome}"`,
+    'Content-Length': fs.statSync(b.arquivo).size,
+    'Cache-Control': 'no-store',
+  });
+  fs.createReadStream(b.arquivo).pipe(res);
+});
+
+rota('POST', '/api/admin/backups/restaurar', (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const b = backupDoPedido(req);
+  if (!b) return json(res, 404, { erro: 'Backup não encontrado.' });
+  try {
+    const r = restaurarBackup(b.arquivo);
+    registrar(null, 'backup.restaurado', `${b.nome} restaurado por ${u.nome} · ${r.participantes} cadastros, ${r.usuarios} usuários · cópia anterior: ${r.seguranca}`);
+    json(res, 200, r);
+  } catch (e) {
+    json(res, 422, { erro: e.message });
+  }
+});
+
+// Restaurar a partir de um arquivo .db enviado do computador (ex.: um backup baixado antes).
+rota('POST', '/api/admin/backups/enviar', async (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const LIMITE = 200 * 1024 * 1024;
+  const temp = path.join(BACKUP_DIR, `envio-${crypto.randomBytes(6).toString('hex')}.tmp`);
+  fs.mkdirSync(BACKUP_DIR, { recursive: true });
+  try {
+    await new Promise((resolve, reject) => {
+      let tamanho = 0;
+      const out = fs.createWriteStream(temp);
+      req.on('data', (c) => {
+        tamanho += c.length;
+        if (tamanho > LIMITE) {
+          req.destroy();
+          reject(new Error('Arquivo grande demais.'));
+        }
+      });
+      req.pipe(out);
+      out.on('finish', resolve);
+      out.on('error', reject);
+      req.on('error', reject);
+    });
+    const r = restaurarBackup(temp);
+    registrar(null, 'backup.restaurado', `Arquivo enviado por ${u.nome} · ${r.participantes} cadastros, ${r.usuarios} usuários · cópia anterior: ${r.seguranca}`);
+    json(res, 200, r);
+  } catch (e) {
+    json(res, 422, { erro: e.message });
+  } finally {
+    fs.rmSync(temp, { force: true });
+  }
+});
 
 rota('GET', '/api/admin/auditoria', (req, res) => {
   if (!exigirUsuario(req, res, 'admin')) return;
@@ -1300,6 +1568,8 @@ function aplicarRetencao() {
 }
 aplicarRetencao();
 setInterval(aplicarRetencao, 6 * 60 * 60 * 1000).unref();
+backupAutomatico();
+setInterval(backupAutomatico, BACKUP_HORAS * 60 * 60 * 1000).unref();
 
 criarPrimeiroAdmin().then(() => {
   server.listen(PORT, () => {

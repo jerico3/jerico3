@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <script src="/vendor/qrcode.js"></script>
+  <script src="/sorteio-show.js"></script>
   <style>
     :root {
       --navy: #011250; --navy-2: #0a1a80; --accent: #8aa0ff; --accent-soft: #eef1fb;
@@ -184,6 +185,7 @@
         <button role="tab" data-aba="links">Links e QR Code</button>
         <button role="tab" data-aba="usuarios" class="so-admin" hidden>Usuários</button>
         <button role="tab" data-aba="atividade" class="so-admin" hidden>Atividade</button>
+        <button role="tab" data-aba="backups" class="so-admin" hidden>Backups</button>
       </nav>
     </div>
   </header>
@@ -305,7 +307,13 @@
           <div>
             <p class="grafico-titulo">Aparelho</p>
             <div class="disp" id="rel-disp"></div>
+            <p class="grafico-titulo" style="margin-top:18px">Navegador ou app</p>
+            <div class="disp" id="rel-nav"></div>
           </div>
+        </div>
+        <div class="tiles" id="rel-conversao" style="margin-top:20px" hidden>
+          <div class="tile"><span>Cadastros no período</span><strong id="rel-cad">–</strong></div>
+          <div class="tile"><span>Conversão (cadastros ÷ acessos)</span><strong id="rel-conv">–</strong><small>quantos dos que escanearam se cadastraram</small></div>
         </div>
         <details class="tabela-rel">
           <summary>Ver tabela por dia</summary>
@@ -313,7 +321,7 @@
             <table><thead><tr><th>Dia</th><th>Acessos</th></tr></thead><tbody id="rel-tabela"></tbody></table>
           </div>
         </details>
-        <p class="muted" style="font-size:.8rem;margin:12px 0 0">Pré-visualizações de link (WhatsApp, redes sociais) e robôs não entram na contagem. Nenhum dado pessoal é guardado.</p>
+        <p class="muted" style="font-size:.8rem;margin:12px 0 0">Pré-visualizações de link (WhatsApp, redes sociais) e robôs não entram na contagem. O acesso é anônimo: só ficam dia, hora, tipo de aparelho e navegador, nada que identifique a pessoa.</p>
       </div>
     </section>
 
@@ -352,6 +360,32 @@
         </div>
       </div>
     </section>
+    <!-- Backups -->
+    <section data-painel="backups" hidden>
+      <div class="card">
+        <div class="cab">
+          <h2>Cópias de segurança do banco</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn" id="enviar-backup">Restaurar de um arquivo…</button>
+            <button class="btn primario" id="fazer-backup">Fazer backup agora</button>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:-6px" id="backup-info"></p>
+        <input type="file" id="arquivo-backup" accept=".db,.sqlite,application/octet-stream" hidden>
+        <div class="tabela">
+          <table>
+            <thead><tr><th>Criado em</th><th>Arquivo</th><th>Tamanho</th><th></th></tr></thead>
+            <tbody id="backups"></tbody>
+          </table>
+        </div>
+        <p class="muted" style="font-size:.8rem;margin:12px 0 0">
+          Restaurar troca cadastros, sorteios, usuários e links pelo conteúdo do backup. Antes, o sistema faz
+          automaticamente uma cópia do estado atual (aparece nesta lista como "antes de restaurar"), então
+          dá para desfazer. Depois de restaurar, todos entram de novo no painel. Baixe uma cópia de vez em
+          quando e guarde fora do servidor.
+        </p>
+      </div>
+    </section>
   </main>
 
   <!-- Diálogos -->
@@ -385,6 +419,7 @@
         A pessoa vai receber um e-mail para confirmar o cadastro e criar a própria senha. No primeiro login,
         ela configura a verificação em duas etapas no celular.
       </p>
+      <label class="check" id="u-notif-linha"><input type="checkbox" id="u-notif"> Receber e-mail a cada novo cadastro</label>
       <label class="check" id="u-ativo-linha"><input type="checkbox" id="u-ativo"> Usuário ativo (pode entrar no painel)</label>
       <div class="rodape-dlg">
         <button type="button" class="btn" data-fechar>Cancelar</button>
@@ -550,6 +585,7 @@
       if (aba === 'usuarios') carregarUsuarios();
       if (aba === 'atividade') carregarAtividade();
       if (aba === 'links') carregarLinks();
+      if (aba === 'backups') carregarBackups();
       try { sessionStorage.setItem('aba', aba); } catch {}
     }
     document.querySelectorAll('nav [data-aba]').forEach((b) => b.onclick = () => abrirAba(b.dataset.aba));
@@ -627,31 +663,30 @@
 
     // ---------- sorteio ----------
 
-    $('sortear').onclick = async () => {
-      const btn = $('sortear');
-      btn.disabled = true;
-      const palco = $('palco');
-      palco.hidden = false;
-      palco.classList.add('girando');
-      $('v-nome').textContent = 'Sorteando…';
-      $('v-contato').textContent = '';
-      const pedido = api('POST', '/api/admin/sortear', { data: diaEscolhido || null }).then((d) => ({ d }), (e) => ({ e }));
-      // Animação de "roleta" com os códigos do dia enquanto o servidor sorteia.
-      const ids = estado.participantes.filter(doDia).map((p) => p.id);
-      const fim = Date.now() + 2500;
-      while (Date.now() < fim && ids.length) {
-        $('v-num').textContent = fmtId(ids[Math.floor(Math.random() * ids.length)]);
-        await new Promise((r) => setTimeout(r, 70));
+    // Abre a tela de sorteio (Fusca, Kombi, placa girando, confete e buzina) por cima do painel.
+    async function sortear() {
+      const sorteados = new Set(estado.sorteios.map((s) => s.id));
+      const elegiveis = estado.participantes.filter(doDia).filter((p) => !sorteados.has(p.id));
+      const r = await ShowSorteio.rodar({
+        subtitulo: diaEscolhido ? `Evento de ${fmtDia(diaEscolhido)} · ${elegiveis.length} concorrendo` : `Todas as datas · ${elegiveis.length} concorrendo`,
+        codigos: elegiveis.map((p) => fmtId(p.id)),
+        sortear: async () => {
+          const { vencedor: v } = await api('POST', '/api/admin/sortear', { data: diaEscolhido || null });
+          return { id: v.id, codigo: fmtId(v.id), nome: v.nome, info: [`CPF ${fmtCpf(v.cpf)}`, fmtTel(v.telefone), v.email].filter(Boolean).join(' · ') };
+        },
+        podeOutro: () => elegiveis.length > 1,
+      });
+      if (!r.erro) {
+        const palco = $('palco');
+        palco.hidden = false;
+        $('v-num').textContent = r.codigo;
+        $('v-nome').textContent = r.nome;
+        $('v-contato').textContent = r.info;
       }
-      const { d, e } = await pedido;
-      palco.classList.remove('girando');
-      if (e) { $('v-num').textContent = '—'; $('v-nome').textContent = e.message; btn.disabled = false; return; }
-      const v = d.vencedor;
-      $('v-num').textContent = fmtId(v.id);
-      $('v-nome').textContent = v.nome;
-      $('v-contato').textContent = [`CPF ${fmtCpf(v.cpf)}`, fmtTel(v.telefone), v.email].join(' · ');
-      await carregar();
-    };
+      await carregar().catch(() => {});
+    }
+    ShowSorteio.aoSortearOutro(() => sortear());
+    $('sortear').onclick = () => sortear();
 
     $('reiniciar').onclick = async () => {
       const ok = await confirmar('Reiniciar histórico de sorteados?',
@@ -747,6 +782,10 @@
       $('u-convite-info').hidden = !!u;
       $('u-ativo').checked = u ? !!u.ativo : true;
       $('u-ativo-linha').hidden = !u || u.id === eu.id;
+      $('u-notif').checked = u ? !!u.notif_cadastros : true;
+      const sincNotif = () => { $('u-notif-linha').hidden = $('u-papel').value !== 'admin'; };
+      $('u-papel').onchange = sincNotif;
+      sincNotif();
       d.showModal();
     }
     $('novo-usuario').onclick = () => abrirUsuario();
@@ -754,7 +793,7 @@
     $('form-usuario').onsubmit = async (ev) => {
       ev.preventDefault();
       const d = $('dlg-usuario');
-      const body = { nome: $('u-nome').value, email: $('u-email').value, papel: $('u-papel').value, ativo: $('u-ativo').checked };
+      const body = { nome: $('u-nome').value, email: $('u-email').value, papel: $('u-papel').value, ativo: $('u-ativo').checked, notifCadastros: $('u-notif').checked };
       try {
         if (usuarioEditando) {
           await api('PUT', `/api/admin/usuarios/${usuarioEditando.id}`, body);
@@ -835,9 +874,16 @@
       'senha.recuperacao': 'Pediu nova senha por e-mail',
       'senha.redefinida': 'Criou nova senha pelo e-mail',
       'retencao': 'Limpeza automática (retenção)',
+      'backup.criado': 'Fez backup',
+      'backup.baixado': 'Baixou backup',
+      'backup.restaurado': 'Restaurou backup',
     };
 
     const NOMES_DISPOSITIVO = { iphone: 'iPhone', android: 'Android', computador: 'Computador', outro: 'Outros' };
+    const NOMES_NAVEGADOR = {
+      instagram: 'Instagram', facebook: 'Facebook', tiktok: 'TikTok', samsung: 'Samsung Internet', edge: 'Edge',
+      opera: 'Opera', firefox: 'Firefox', chrome: 'Chrome', safari: 'Safari', outro: 'Outros',
+    };
 
     async function carregarAtividade() {
       let logs;
@@ -852,6 +898,68 @@
       }));
     }
     $('atualizar-atividade').onclick = carregarAtividade;
+
+    // ---------- backups ----------
+
+    const fmtTamanho = (n) => n < 1024 * 1024 ? `${Math.max(1, Math.round(n / 1024))} KB` : `${(n / 1024 / 1024).toFixed(1)} MB`;
+    const MOTIVO_BACKUP = { auto: 'automático', manual: 'manual', 'antes-de-restaurar': 'antes de restaurar', inicio: 'ao iniciar' };
+
+    async function carregarBackups() {
+      let r;
+      try { r = await api('GET', '/api/admin/backups'); } catch (e) { return toast(e.message, true); }
+      $('backup-info').textContent = `Backup automático a cada ${r.horas} h, mantendo os ${r.manter} mais recentes. Pasta no servidor: ${r.pasta}`;
+      const tbody = $('backups');
+      if (!r.backups.length) return linhaVazia(tbody, 4, 'Nenhum backup ainda.');
+      tbody.replaceChildren(...r.backups.map((b) => {
+        const tr = el('tr');
+        const motivo = Object.keys(MOTIVO_BACKUP).find((k) => b.nome.endsWith(`-${k}.db`));
+        const arq = el('td', b.nome, 'quebra');
+        if (MOTIVO_BACKUP[motivo]) arq.append(el('span', MOTIVO_BACKUP[motivo], 'tag operador'));
+        const acoes = el('td', null, 'acoes');
+        const baixar = el('a', 'Baixar', 'btn pequeno');
+        baixar.href = `/api/admin/backups/baixar?nome=${encodeURIComponent(b.nome)}`;
+        acoes.append(baixar, botao('Restaurar', 'perigo', () => restaurarBackup(b.nome)));
+        tr.append(el('td', new Date(b.criado_em).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })), arq, el('td', fmtTamanho(b.tamanho)), acoes);
+        return tr;
+      }));
+    }
+
+    $('fazer-backup').onclick = async () => {
+      try {
+        await api('POST', '/api/admin/backups', {});
+        toast('Backup criado.');
+        carregarBackups();
+      } catch (e) { toast(e.message, true); }
+    };
+
+    function restaurado(r) {
+      toast(`Banco restaurado: ${r.participantes} cadastros, ${r.usuarios} usuários. Entre de novo.`);
+      setTimeout(() => { location.href = '/login'; }, 1800);
+    }
+
+    async function restaurarBackup(nome) {
+      const ok = await confirmar('Restaurar este backup?',
+        `Cadastros, sorteios, usuários e links voltam a ser como em ${nome}. Uma cópia do estado atual é feita antes, para poder desfazer. Todos precisarão entrar de novo.`, 'Restaurar');
+      if (!ok) return;
+      try { restaurado(await api('POST', `/api/admin/backups/restaurar?nome=${encodeURIComponent(nome)}`, {})); }
+      catch (e) { toast(e.message, true); }
+    }
+
+    $('enviar-backup').onclick = () => $('arquivo-backup').click();
+    $('arquivo-backup').onchange = async () => {
+      const f = $('arquivo-backup').files[0];
+      $('arquivo-backup').value = '';
+      if (!f) return;
+      const ok = await confirmar(`Restaurar ${f.name}?`,
+        'O conteúdo do banco será trocado pelo deste arquivo. Uma cópia do estado atual é feita antes, para poder desfazer. Todos precisarão entrar de novo.', 'Restaurar');
+      if (!ok) return;
+      try {
+        const res = await fetch('/api/admin/backups/enviar', { method: 'POST', headers: { 'Content-Type': 'application/octet-stream' }, body: f });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.erro || 'Não foi possível restaurar.');
+        restaurado(data);
+      } catch (e) { toast(e.message, true); }
+    };
 
     // ---------- minha conta ----------
 
@@ -1015,20 +1123,28 @@
       const marcas = [r.dias[0], r.dias[Math.floor(r.dias.length / 2)], r.dias[r.dias.length - 1]];
       $('rel-eixo').replaceChildren(...marcas.map((d) => el('span', fmtDia(d.dia).slice(0, 5))));
 
-      // Aparelhos: barras horizontais com rótulo e número.
-      const disp = $('rel-disp');
-      if (!r.dispositivos.length) {
-        disp.replaceChildren(el('span', 'Nenhum acesso no período.', 'muted'));
-      } else {
-        const totalDisp = r.dispositivos.reduce((s, d) => s + d.total, 0);
-        disp.replaceChildren(...r.dispositivos.flatMap((d) => {
-          const pct = Math.round((d.total / totalDisp) * 100);
+      // Aparelhos e navegadores: barras horizontais com rótulo e número.
+      const barrasH = (alvo, lista, chave, nomes) => {
+        if (!lista.length) return alvo.replaceChildren(el('span', 'Nenhum acesso no período.', 'muted'));
+        const soma = lista.reduce((s, d) => s + d.total, 0);
+        alvo.replaceChildren(...lista.flatMap((d) => {
+          const pct = Math.round((d.total / soma) * 100);
           const trilho = el('div', null, 'trilho');
           const fill = el('i');
           fill.style.width = `${pct}%`;
           trilho.append(fill);
-          return [el('span', NOMES_DISPOSITIVO[d.dispositivo] || d.dispositivo), trilho, el('span', `${pct}% (${d.total})`, 'val')];
+          return [el('span', nomes[d[chave]] || d[chave]), trilho, el('span', `${pct}% (${d.total})`, 'val')];
         }));
+      };
+      barrasH($('rel-disp'), r.dispositivos, 'dispositivo', NOMES_DISPOSITIVO);
+      barrasH($('rel-nav'), r.navegadores || [], 'navegador', NOMES_NAVEGADOR);
+
+      // Conversão: só para links que levam ao formulário.
+      $('rel-conversao').hidden = !r.cadastros;
+      if (r.cadastros) {
+        const cad = Object.values(r.cadastros).reduce((s, n) => s + n, 0);
+        $('rel-cad').textContent = cad.toLocaleString('pt-BR');
+        $('rel-conv').textContent = total ? `${Math.min(100, Math.round((cad / total) * 100))}%` : '–';
       }
 
       const linhas = r.dias.filter((d) => d.total).reverse();
@@ -1126,12 +1242,21 @@
       let aba = 'sorteio';
       try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
       if (aba === 'qr') aba = 'links';
-      if (!ehAdmin() && ['usuarios', 'atividade'].includes(aba)) aba = 'sorteio';
+      if (!ehAdmin() && ['usuarios', 'atividade', 'backups'].includes(aba)) aba = 'sorteio';
       abrirAba(aba);
       await carregar();
       // Atualiza os números sozinho durante o evento (sem atrapalhar quem está editando).
-      setInterval(() => {
-        if (!document.querySelector('dialog[open]') && ['sorteio', 'cadastros'].includes(abaAtual)) carregar().catch(() => {});
+      let ultimoId = Math.max(0, ...estado.participantes.map((p) => p.id));
+      setInterval(async () => {
+        if (document.querySelector('dialog[open]') || !['sorteio', 'cadastros'].includes(abaAtual)) return;
+        try { await carregar(); } catch { return; }
+        // Avisa no painel quando chegam cadastros novos.
+        const novos = estado.participantes.filter((p) => p.id > ultimoId);
+        if (novos.length) {
+          ultimoId = Math.max(...novos.map((p) => p.id));
+          const n = novos[novos.length - 1];
+          toast(novos.length === 1 ? `Novo cadastro: ${fmtId(n.id)} · ${n.nome}` : `${novos.length} novos cadastros (último: ${fmtId(n.id)})`);
+        }
       }, 15000);
     })();
   </script>

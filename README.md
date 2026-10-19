@@ -60,6 +60,9 @@ autenticador no primeiro login; recarrega ao salvar).
 | `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
 | `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails.   |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
+| `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
+| `BACKUP_HORAS`   | `6`                 | Intervalo entre backups automáticos (também faz um ao iniciar). |
+| `BACKUP_MANTER`  | `28`                | Quantos backups automáticos guardar.                 |
 
 Sem `SMTP_*`, o painel continua funcionando: o convite vira um link para o administrador copiar e
 enviar, e "Esqueci minha senha" avisa que a recuperação por e-mail não está configurada. Os links dos
@@ -91,6 +94,20 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - Retenção configurável (`RETENCAO_DIAS`), com registro na aba Atividade.
 - Atendimento aos titulares: buscar pelo CPF, corrigir ou excluir o cadastro no painel.
 - O Aviso de Privacidade é um modelo: **revise com o jurídico** antes de usar.
+
+**Notificações por e-mail** (precisa do `SMTP_*`)
+- Quem se cadastra recebe um e-mail com o código de participação.
+- Administradores recebem um e-mail a cada novo cadastro (nome, código e CPF mascarado). Cada um pode
+  desligar em Usuários → Editar → "Receber e-mail a cada novo cadastro".
+- Com o painel aberto, um aviso aparece quando chegam cadastros novos.
+
+**Backups do banco** (aba **Backups**, só administradores)
+- Backup automático ao iniciar e a cada `BACKUP_HORAS`, mantendo os `BACKUP_MANTER` mais recentes,
+  em `BACKUP_DIR` (por padrão ao lado do banco, ou seja, fora da pasta do app se `DB_PATH` estiver
+  fora dela). Botão **Fazer backup agora** e **Baixar** para guardar uma cópia no computador.
+- **Restaurar** um backup da lista ou **de um arquivo** `.db` baixado antes. Antes de restaurar, o
+  sistema faz uma cópia do estado atual ("antes de restaurar"), então dá para desfazer. A numeração
+  dos códigos continua de onde o backup parou, o histórico de atividade é somado e todos entram de novo.
 
 **Segurança**
 - Cabeçalhos: CSP, `X-Frame-Options: DENY`, HSTS (atrás de HTTPS), `nosniff`, `Referrer-Policy`.
@@ -126,21 +143,29 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
   no campo da aba antes de imprimir.
   - **QR Code com logo** no centro (`public/qr-logo.png`; com logo o QR usa correção de erro alta),
     para baixar em PNG ou imprimir.
-  - **Relatório de acessos** por link: total, hoje, melhor dia, horário de pico, gráfico por dia e
-    divisão por aparelho (iPhone, Android, computador). Pré-visualizações do WhatsApp/redes e robôs
-    não contam. Só guarda dia, hora e tipo de aparelho, nada que identifique a pessoa.
+  - **Relatório de acessos** por link: total, hoje, melhor dia, horário de pico, gráfico por dia,
+    divisão por aparelho (iPhone, Android, computador) e por navegador ou app (Instagram, Facebook,
+    TikTok, Chrome, Safari…). Para o link do formulário, mostra também os cadastros do período e a
+    conversão (cadastros ÷ acessos). Pré-visualizações do WhatsApp/redes e robôs não contam. O acesso
+    é anônimo: só guarda dia, hora, aparelho e navegador, nada que identifique a pessoa.
   - **UTM automático** (opcional por link): destinos externos recebem
     `utm_source=qrcode&utm_medium=qr&utm_campaign=<link>`, para o Google Analytics mostrar que o
     acesso veio do QR Code. Endereços que já têm UTM não são alterados.
 - **Sortear**: escolhe um código aleatório entre os cadastros do dia escolhido ainda não sorteados
-  (gerador criptográfico `crypto.randomInt`), com animação de roleta. Os sorteados ficam no
+  (gerador criptográfico `crypto.randomInt`). Abre uma tela por cima do painel (que fica desfocado)
+  com Fusca e Kombi na estrada, a placa Mercosul girando os códigos, rufar de tambor, buzina e
+  confete na revelação, e o botão **Sortear outro**. O som (gerado no navegador) pode ser desligado. Os sorteados ficam no
   histórico e não concorrem de novo; **Reiniciar histórico** (só administradores) limpa o histórico.
 
 ## Publicação
 
 O QR Code precisa apontar para um endereço público com HTTPS. Qualquer serviço que rode Node.js
 serve (Render, Railway, Fly.io, uma VPS…). Garanta que o arquivo do banco (`DB_PATH`) fique em um
-**disco persistente**, senão os cadastros se perdem quando o serviço reinicia.
+**disco persistente** e **fora da pasta do app**: na Hostinger, cada publicação a partir do GitHub
+substitui a pasta do app, e um banco guardado dentro dela é apagado junto. Defina, nas variáveis de
+ambiente, algo como `DB_PATH=/home/<usuario>/sorteio-data/sorteio.db`. Ao iniciar, o app mostra no
+log o caminho do banco e quantos usuários e cadastros ele tem, e avisa se o banco estiver dentro da
+pasta do app.
 
 Com Docker:
 
