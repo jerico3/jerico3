@@ -23,6 +23,8 @@ const TIMEZONE = process.env.TIMEZONE || 'America/Sao_Paulo';
 const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'sorteio.db');
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const SESSION_HOURS = 12;
+// Nome que aparece no app autenticador (Google Authenticator etc.) ao lado do e-mail.
+const TOTP_EMISSOR = process.env.TOTP_EMISSOR || 'Importadora Link';
 // Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
 const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
@@ -134,6 +136,8 @@ for (const [col, tipo] of [
   ['totp_ativo', 'INTEGER NOT NULL DEFAULT 0'],
   ['totp_ultimo_passo', 'INTEGER NOT NULL DEFAULT -1'],
   ['codigos_recuperacao', 'TEXT'],
+  // Chave gerada no primeiro login e guardada até ser confirmada: o QR Code não muda entre tentativas.
+  ['totp_pendente', 'TEXT'],
 ]) {
   if (!db.prepare('PRAGMA table_info(usuarios)').all().some((c) => c.name === col)) {
     db.exec(`ALTER TABLE usuarios ADD COLUMN ${col} ${tipo}`);
@@ -147,6 +151,14 @@ db.exec(`
     tipo        TEXT NOT NULL CHECK (tipo IN ('convite', 'reset')),
     expira_em   INTEGER NOT NULL,
     usado_em    INTEGER
+  );
+  -- Etapa intermediária do login (senha conferida, falta o código do app). No banco, e não na
+  -- memória, para funcionar mesmo se o servidor reiniciar ou rodar em mais de um processo.
+  CREATE TABLE IF NOT EXISTS login_tickets (
+    token_hash  TEXT PRIMARY KEY,
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    expira_em   INTEGER NOT NULL,
+    tentativas  INTEGER NOT NULL DEFAULT 0
   );
 `);
 
@@ -189,15 +201,21 @@ const q = {
   userById: db.prepare(`SELECT ${USUARIO_COLS} FROM usuarios WHERE id = ?`),
   userForLogin: db.prepare('SELECT id, nome, senha_hash, ativo, confirmado, totp_ativo FROM usuarios WHERE email = ?'),
   userAuth: db.prepare(`
-    SELECT id, nome, email, papel, ativo, confirmado, totp_segredo, totp_ativo, totp_ultimo_passo, codigos_recuperacao
+    SELECT id, nome, email, papel, ativo, confirmado, totp_segredo, totp_ativo, totp_ultimo_passo, codigos_recuperacao, totp_pendente
     FROM usuarios WHERE id = ?`),
+  totpPendente: db.prepare('UPDATE usuarios SET totp_pendente = ? WHERE id = ? AND totp_pendente IS NULL'),
+  insertTicket: db.prepare('INSERT INTO login_tickets (token_hash, usuario_id, expira_em) VALUES (?, ?, ?)'),
+  ticket: db.prepare('SELECT usuario_id, tentativas FROM login_tickets WHERE token_hash = ? AND expira_em > ?'),
+  tentativaTicket: db.prepare('UPDATE login_tickets SET tentativas = tentativas + 1 WHERE token_hash = ?'),
+  deleteTicket: db.prepare('DELETE FROM login_tickets WHERE token_hash = ?'),
+  ticketsVencidos: db.prepare('DELETE FROM login_tickets WHERE expira_em <= ?'),
   userByEmail: db.prepare('SELECT id, nome, email, ativo, confirmado FROM usuarios WHERE email = ?'),
   insertUserPendente: db.prepare('INSERT INTO usuarios (nome, email, senha_hash, papel, confirmado) VALUES (?, ?, ?, ?, 0)'),
   confirmarUsuario: db.prepare('UPDATE usuarios SET senha_hash = ?, confirmado = 1 WHERE id = ?'),
-  ativarTotp: db.prepare('UPDATE usuarios SET totp_segredo = ?, totp_ativo = 1, totp_ultimo_passo = ?, codigos_recuperacao = ? WHERE id = ?'),
+  ativarTotp: db.prepare('UPDATE usuarios SET totp_segredo = ?, totp_ativo = 1, totp_ultimo_passo = ?, codigos_recuperacao = ?, totp_pendente = NULL WHERE id = ?'),
   passoTotp: db.prepare('UPDATE usuarios SET totp_ultimo_passo = ? WHERE id = ?'),
   codigosRecuperacao: db.prepare('UPDATE usuarios SET codigos_recuperacao = ? WHERE id = ?'),
-  zerarTotp: db.prepare('UPDATE usuarios SET totp_segredo = NULL, totp_ativo = 0, totp_ultimo_passo = -1, codigos_recuperacao = NULL WHERE id = ?'),
+  zerarTotp: db.prepare('UPDATE usuarios SET totp_segredo = NULL, totp_ativo = 0, totp_ultimo_passo = -1, codigos_recuperacao = NULL, totp_pendente = NULL WHERE id = ?'),
   insertToken: db.prepare('INSERT INTO tokens_email (token_hash, usuario_id, tipo, expira_em) VALUES (?, ?, ?, ?)'),
   token: db.prepare(`
     SELECT t.usuario_id, t.tipo, u.nome, u.email FROM tokens_email t JOIN usuarios u ON u.id = t.usuario_id
@@ -577,26 +595,25 @@ function avisarSenhaAlterada(usuario) {
   }).catch((e) => console.error('Falha ao enviar aviso de senha:', e.message));
 }
 
-// Etapa intermediária do login: a senha já conferiu, falta o código do app. Fica só na memória
-// e vale 10 minutos, com no máximo 5 tentativas de código.
-const tickets = new Map();
+// Etapa intermediária do login: a senha já conferiu, falta o código do app. Vale 15 minutos,
+// com no máximo 5 tentativas de código.
 function criarTicket(usuarioId) {
   const ticket = crypto.randomBytes(24).toString('base64url');
-  tickets.set(sha256(ticket), { usuarioId, expira: Date.now() + 10 * 60 * 1000, tentativas: 0, segredoNovo: null });
+  q.insertTicket.run(sha256(ticket), usuarioId, Date.now() + 15 * 60 * 1000);
   return ticket;
 }
 function lerTicket(ticket) {
   const chave = sha256(String(ticket || ''));
-  const t = tickets.get(chave);
-  if (!t || t.expira < Date.now()) {
-    tickets.delete(chave);
-    return null;
-  }
-  return { chave, t };
+  const t = q.ticket.get(chave, Date.now());
+  return t ? { chave, usuarioId: t.usuario_id, tentativas: t.tentativas } : null;
 }
-setInterval(() => {
-  for (const [k, t] of tickets) if (t.expira < Date.now()) tickets.delete(k);
-}, 10 * 60 * 1000).unref();
+setInterval(() => q.ticketsVencidos.run(Date.now()), 10 * 60 * 1000).unref();
+
+function dicaRelogio(segredo, codigo) {
+  const min = totp.desvioMinutos(segredo, codigo);
+  if (min === null) return '';
+  return ` O horário do seu celular parece estar ${Math.abs(min)} min ${min > 0 ? 'adiantado' : 'atrasado'}: ative "data e hora automáticas" nas configurações do celular.`;
+}
 
 const normalizarRecuperacao = (c) => String(c || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function gerarCodigosRecuperacao() {
@@ -690,10 +707,12 @@ rota('POST', '/api/login/configurar', async (req, res) => {
   const body = await readJson(req).catch(() => ({}));
   const tk = lerTicket(body.ticket);
   if (!tk) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
-  const usuario = q.userAuth.get(tk.t.usuarioId);
+  const usuario = q.userAuth.get(tk.usuarioId);
   if (!usuario || usuario.totp_ativo) return json(res, 409, { erro: 'A verificação em duas etapas já está configurada.' });
-  tk.t.segredoNovo ||= totp.gerarSegredo();
-  json(res, 200, { segredo: tk.t.segredoNovo, uri: totp.uri(tk.t.segredoNovo, usuario.email, `${EVENT_NAME} Sorteio`) });
+  // A mesma chave vale até ser confirmada; assim, sair e voltar não invalida o que já foi lido no app.
+  q.totpPendente.run(totp.gerarSegredo(), usuario.id);
+  const segredo = q.userAuth.get(usuario.id).totp_pendente;
+  json(res, 200, { segredo, uri: totp.uri(segredo, usuario.email, TOTP_EMISSOR), emissor: TOTP_EMISSOR });
 });
 
 rota('POST', '/api/login/verificar', async (req, res) => {
@@ -703,10 +722,11 @@ rota('POST', '/api/login/verificar', async (req, res) => {
   if (limiteLogin.excedeu(ip)) return json(res, 429, { erro: 'Muitas tentativas. Aguarde 15 minutos e tente de novo.' });
   const tk = lerTicket(body.ticket);
   if (!tk) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
-  const usuario = q.userAuth.get(tk.t.usuarioId);
+  const usuario = q.userAuth.get(tk.usuarioId);
   if (!usuario || !usuario.ativo) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
-  if (++tk.t.tentativas > 5) {
-    tickets.delete(tk.chave);
+  q.tentativaTicket.run(tk.chave);
+  if (tk.tentativas + 1 > 5) {
+    q.deleteTicket.run(tk.chave);
     return json(res, 429, { erro: 'Muitas tentativas. Entre de novo com sua senha.' });
   }
 
@@ -722,24 +742,25 @@ rota('POST', '/api/login/verificar', async (req, res) => {
       const i = lista.indexOf(sha256(normalizarRecuperacao(body.codigo)));
       if (i < 0 || normalizarRecuperacao(body.codigo).length !== 8) {
         limiteLogin.contar(ip);
-        return json(res, 401, { erro: 'Código incorreto. Confira o app e tente de novo.' });
+        return json(res, 401, { erro: `Código incorreto. Use o código da conta "${TOTP_EMISSOR}" no app.${dicaRelogio(usuario.totp_segredo, body.codigo)}` });
       }
       lista.splice(i, 1);
       q.codigosRecuperacao.run(JSON.stringify(lista), usuario.id);
       detalhe = `Usou um código de recuperação (restam ${lista.length})`;
     }
   } else {
-    if (!tk.t.segredoNovo) return json(res, 409, { erro: 'Leia o QR Code no app antes de digitar o código.' });
-    const passo = totp.verificar(tk.t.segredoNovo, body.codigo);
+    const segredo = usuario.totp_pendente;
+    if (!segredo) return json(res, 409, { erro: 'Leia o QR Code no app antes de digitar o código.' });
+    const passo = totp.verificar(segredo, body.codigo);
     if (passo === null) {
       limiteLogin.contar(ip);
-      return json(res, 401, { erro: 'Código incorreto. Confira se leu o QR Code certo e se o horário do celular está correto.' });
+      return json(res, 401, { erro: `Código incorreto. Confira se está usando a conta "${TOTP_EMISSOR}" lida neste QR Code (apague do app as entradas antigas).${dicaRelogio(segredo, body.codigo)}` });
     }
     codigosNovos = gerarCodigosRecuperacao();
-    q.ativarTotp.run(tk.t.segredoNovo, passo, JSON.stringify(codigosNovos.map((c) => sha256(normalizarRecuperacao(c)))), usuario.id);
+    q.ativarTotp.run(segredo, passo, JSON.stringify(codigosNovos.map((c) => sha256(normalizarRecuperacao(c)))), usuario.id);
     registrar(usuario, '2fa.ativado', 'Configurou a verificação em duas etapas');
   }
-  tickets.delete(tk.chave);
+  q.deleteTicket.run(tk.chave);
   const { cookie } = criarSessao(req, usuario.id);
   registrar(usuario, 'login', detalhe);
   json(res, 200, { ok: true, codigosRecuperacao: codigosNovos }, { 'Set-Cookie': cookie });

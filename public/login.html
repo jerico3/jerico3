@@ -159,7 +159,7 @@
       <p class="sub">O painel exige verificação em duas etapas. Leva 1 minuto e é feito só uma vez.</p>
       <ol class="passos">
         <li>Instale no celular um app autenticador: <strong>Google Authenticator</strong>, <strong>Microsoft Authenticator</strong> ou <strong>Authy</strong>.</li>
-        <li>No app, toque em <strong>+</strong> e leia o QR Code abaixo.</li>
+        <li>No app, toque em <strong>+</strong> e leia o QR Code abaixo. Vai aparecer a conta <strong id="emissor-2fa">Importadora Link</strong>. Se você já tinha lido um QR Code antes, apague as entradas antigas do app.</li>
         <li>Digite o código de 6 dígitos que aparecer no app.</li>
       </ol>
       <div class="qr-box" id="qr-2fa"></div>
@@ -314,6 +314,7 @@
       img.alt = 'QR Code para o app autenticador';
       $('qr-2fa').replaceChildren(img);
       $('chave-2fa').textContent = r.segredo.replace(/(.{4})/g, '$1 ').trim();
+      if (r.emissor) $('emissor-2fa').textContent = r.emissor;
       $('codigo-novo').value = '';
       mostrarPasso('passo-configurar');
     }

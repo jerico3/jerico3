@@ -48,15 +48,29 @@ function codigoNoPasso(segredo, passo, digitos = 6) {
   return String(n).padStart(digitos, '0');
 }
 
-// Confere o código aceitando 30 s de diferença de relógio para cada lado. Devolve o passo usado
-// (para impedir que o mesmo código seja reaproveitado) ou null se não conferir.
+// Confere o código aceitando até 1 minuto de diferença de relógio para cada lado. Devolve o passo
+// usado (para impedir que o mesmo código seja reaproveitado) ou null se não conferir.
 function verificar(segredo, entrada, ultimoPasso = -1, agora = Date.now()) {
   const codigo = String(entrada || '').replace(/\D/g, '');
   if (codigo.length !== 6) return null;
   const atual = Math.floor(agora / 1000 / PERIODO);
-  for (const passo of [atual, atual - 1, atual + 1]) {
+  for (const passo of [atual, atual - 1, atual + 1, atual - 2, atual + 2]) {
     if (passo <= ultimoPasso) continue;
     if (crypto.timingSafeEqual(Buffer.from(codigoNoPasso(segredo, passo)), Buffer.from(codigo))) return passo;
+  }
+  return null;
+}
+
+// Só para diagnóstico (nunca para aceitar o código): se o código bate com um horário até 20 minutos
+// diferente, devolve a diferença em minutos (positivo = celular adiantado).
+function desvioMinutos(segredo, entrada, agora = Date.now()) {
+  const codigo = String(entrada || '').replace(/\D/g, '');
+  if (codigo.length !== 6) return null;
+  const atual = Math.floor(agora / 1000 / PERIODO);
+  for (let d = 3; d <= 40; d++) {
+    for (const passo of [atual + d, atual - d]) {
+      if (codigoNoPasso(segredo, passo) === codigo) return Math.round(((passo - atual) * PERIODO) / 60);
+    }
   }
   return null;
 }
@@ -67,4 +81,4 @@ function uri(segredo, conta, emissor) {
   return `otpauth://totp/${rotulo}?secret=${segredo}&issuer=${encodeURIComponent(emissor)}&algorithm=SHA1&digits=6&period=${PERIODO}`;
 }
 
-module.exports = { gerarSegredo, verificar, uri, codigoNoPasso, base32 };
+module.exports = { gerarSegredo, verificar, desvioMinutos, uri, codigoNoPasso, base32 };
