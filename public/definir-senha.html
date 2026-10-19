@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#011250">
+  <meta name="robots" content="noindex">
+  <title>Criar senha · Painel do sorteio</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root { --navy: #011250; --navy-2: #0a1a80; --text: #0f172a; --muted: #64748b; --border: #d5dbe5; --error: #b91c1c; --error-bg: #fdecec; }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      --fundo-largura: max(100vw, 900px);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      min-height: 100dvh;
+      background: var(--navy) url('/fundo.webp') center top / var(--fundo-largura) auto no-repeat;
+      color: var(--text);
+      display: flex; flex-direction: column; align-items: center;
+      padding: calc(var(--fundo-largura) * .129 + 32px) 16px 32px;
+    }
+    [hidden] { display: none !important; }
+    .card { width: 100%; max-width: 420px; background: #fff; border-radius: 18px; padding: 30px 28px 28px; box-shadow: 0 24px 60px rgba(0, 0, 0, .35); }
+    h1 { margin: 0 0 4px; font-size: 1.3rem; color: var(--navy); }
+    .sub { margin: 0 0 22px; color: var(--muted); font-size: .92rem; }
+    label { display: block; font-size: .85rem; font-weight: 600; margin-bottom: 6px; color: #334155; }
+    .campo { margin-bottom: 16px; }
+    input { width: 100%; font: inherit; font-size: 16px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); }
+    input:focus { outline: none; border-color: var(--navy-2); box-shadow: 0 0 0 3px rgba(10, 26, 128, .14); }
+    .ajuda { color: var(--muted); font-size: .8rem; margin-top: 6px; }
+    .forca { height: 6px; border-radius: 4px; background: #eef1f6; margin-top: 8px; overflow: hidden; }
+    .forca i { display: block; height: 100%; width: 0; background: #b91c1c; transition: width .2s, background .2s; }
+    button { width: 100%; font: inherit; font-weight: 700; font-size: 1rem; color: #fff; background: var(--navy-2); border: 0; border-radius: 10px; padding: 13px; cursor: pointer; margin-top: 4px; }
+    button:hover { background: var(--navy); }
+    button:disabled { opacity: .65; cursor: wait; }
+    .erro { display: none; background: var(--error-bg); color: var(--error); border-radius: 10px; padding: 10px 12px; font-size: .88rem; margin-bottom: 16px; }
+    .erro.show { display: block; }
+    a.botao { display: block; text-align: center; text-decoration: none; color: #fff; background: var(--navy-2); border-radius: 10px; padding: 13px; font-weight: 700; }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <section id="carregando"><p class="sub">Verificando o link…</p></section>
+
+    <section id="invalido" hidden>
+      <h1>Link expirado</h1>
+      <p class="sub" id="invalido-msg">Este link expirou ou já foi usado.</p>
+      <p class="sub">Peça um novo pelo botão <strong>Esqueci minha senha</strong> na tela de login, ou peça a um administrador para reenviar o convite.</p>
+      <a class="botao" href="/login">Ir para o login</a>
+    </section>
+
+    <section id="formulario" hidden>
+      <h1 id="titulo">Criar senha</h1>
+      <p class="sub" id="subtitulo"></p>
+      <form id="form" novalidate>
+        <div class="erro" id="erro" role="alert"></div>
+        <input type="email" id="email" autocomplete="username" hidden>
+        <div class="campo">
+          <label for="senha">Nova senha</label>
+          <input type="password" id="senha" autocomplete="new-password" required minlength="8">
+          <div class="forca" aria-hidden="true"><i id="forca"></i></div>
+          <div class="ajuda">Use pelo menos 8 caracteres. Uma frase com palavras e números é fácil de lembrar e difícil de adivinhar.</div>
+        </div>
+        <div class="campo">
+          <label for="confirma">Repita a senha</label>
+          <input type="password" id="confirma" autocomplete="new-password" required>
+        </div>
+        <button type="submit" id="salvar">Salvar senha</button>
+      </form>
+    </section>
+
+    <section id="pronto" hidden>
+      <h1>Senha criada!</h1>
+      <p class="sub" id="pronto-msg">Agora entre no painel com seu e-mail e a nova senha.</p>
+      <a class="botao" href="/login">Entrar no painel</a>
+    </section>
+  </main>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    // O token vem depois do "#": essa parte do endereço não é enviada a servidores nem fica em logs.
+    const token = new URLSearchParams(location.hash.slice(1)).get('t') || '';
+    history.replaceState(null, '', location.pathname);
+    let tipo = 'reset';
+
+    const mostrar = (id) => document.querySelectorAll('main > section').forEach((s) => s.hidden = s.id !== id);
+
+    async function post(url, body) {
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) { const e = new Error(data.erro || 'Algo deu errado.'); e.status = res.status; throw e; }
+      return data;
+    }
+
+    (async () => {
+      if (!token) return mostrar('invalido');
+      try {
+        const r = await post('/api/senha/verificar', { token });
+        tipo = r.tipo;
+        $('email').value = r.email;
+        $('titulo').textContent = r.tipo === 'convite' ? `Bem-vindo(a), ${r.nome.split(' ')[0]}!` : 'Criar nova senha';
+        $('subtitulo').textContent = r.tipo === 'convite'
+          ? `Crie a senha do seu acesso ao painel (${r.email}).`
+          : `Escolha uma nova senha para ${r.email}.`;
+        mostrar('formulario');
+        $('senha').focus();
+      } catch (e) {
+        $('invalido-msg').textContent = e.message;
+        mostrar('invalido');
+      }
+    })();
+
+    // Indicador simples de força da senha.
+    $('senha').addEventListener('input', () => {
+      const s = $('senha').value;
+      let pts = 0;
+      if (s.length >= 8) pts++;
+      if (s.length >= 12) pts++;
+      if (/[a-z]/.test(s) && /[A-Z]/.test(s)) pts++;
+      if (/\d/.test(s)) pts++;
+      if (/[^A-Za-z0-9]/.test(s)) pts++;
+      const cores = ['#b91c1c', '#b91c1c', '#d97706', '#d97706', '#15803d', '#15803d'];
+      $('forca').style.width = `${(pts / 5) * 100}%`;
+      $('forca').style.background = cores[pts];
+    });
+
+    $('form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const erro = $('erro');
+      erro.classList.remove('show');
+      const senha = $('senha').value;
+      const falha = senha.length < 8 ? 'A senha precisa ter pelo menos 8 caracteres.'
+        : senha !== $('confirma').value ? 'As duas senhas não são iguais.' : '';
+      if (falha) { erro.textContent = falha; return erro.classList.add('show'); }
+      const btn = $('salvar');
+      btn.disabled = true;
+      btn.textContent = 'Salvando…';
+      try {
+        await post('/api/senha/definir', { token, senha });
+        $('pronto-msg').textContent = tipo === 'convite'
+          ? 'Cadastro confirmado. Agora entre no painel com seu e-mail e a nova senha; no primeiro acesso você vai configurar a verificação em duas etapas.'
+          : 'Agora entre no painel com seu e-mail e a nova senha. A verificação em duas etapas continua valendo.';
+        mostrar('pronto');
+      } catch (err) {
+        if (err.status === 410) { $('invalido-msg').textContent = err.message; return mostrar('invalido'); }
+        erro.textContent = err.message;
+        erro.classList.add('show');
+        btn.disabled = false;
+        btn.textContent = 'Salvar senha';
+      }
+    });
+  </script>
+</body>
+</html>

@@ -7,6 +7,8 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { promisify } = require('node:util');
 const { DatabaseSync } = require('node:sqlite');
+const totp = require('./totp');
+const mailer = require('./mailer');
 
 const PORT = Number(process.env.PORT) || 3000;
 // Usados só para criar o primeiro administrador, quando ainda não existe nenhum usuário.
@@ -125,9 +127,31 @@ db.exec(`
 if (!db.prepare('PRAGMA table_info(links)').all().some((c) => c.name === 'utm')) {
   db.exec('ALTER TABLE links ADD COLUMN utm INTEGER NOT NULL DEFAULT 1');
 }
+// Convite por e-mail (confirmado = 0 até a pessoa definir a senha) e verificação em duas etapas.
+for (const [col, tipo] of [
+  ['confirmado', 'INTEGER NOT NULL DEFAULT 1'],
+  ['totp_segredo', 'TEXT'],
+  ['totp_ativo', 'INTEGER NOT NULL DEFAULT 0'],
+  ['totp_ultimo_passo', 'INTEGER NOT NULL DEFAULT -1'],
+  ['codigos_recuperacao', 'TEXT'],
+]) {
+  if (!db.prepare('PRAGMA table_info(usuarios)').all().some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE usuarios ADD COLUMN ${col} ${tipo}`);
+  }
+}
+db.exec(`
+  -- Links de uso único enviados por e-mail (convite e recuperação de senha). Só o hash fica salvo.
+  CREATE TABLE IF NOT EXISTS tokens_email (
+    token_hash  TEXT PRIMARY KEY,
+    usuario_id  INTEGER NOT NULL REFERENCES usuarios(id) ON DELETE CASCADE,
+    tipo        TEXT NOT NULL CHECK (tipo IN ('convite', 'reset')),
+    expira_em   INTEGER NOT NULL,
+    usado_em    INTEGER
+  );
+`);
 
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
-const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em';
+const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em, confirmado, totp_ativo';
 
 const q = {
   insert: db.prepare(`
@@ -163,7 +187,24 @@ const q = {
   countActiveAdmins: db.prepare("SELECT COUNT(*) AS n FROM usuarios WHERE papel = 'admin' AND ativo = 1"),
   users: db.prepare(`SELECT ${USUARIO_COLS} FROM usuarios ORDER BY nome COLLATE NOCASE`),
   userById: db.prepare(`SELECT ${USUARIO_COLS} FROM usuarios WHERE id = ?`),
-  userForLogin: db.prepare('SELECT id, nome, senha_hash, ativo FROM usuarios WHERE email = ?'),
+  userForLogin: db.prepare('SELECT id, nome, senha_hash, ativo, confirmado, totp_ativo FROM usuarios WHERE email = ?'),
+  userAuth: db.prepare(`
+    SELECT id, nome, email, papel, ativo, confirmado, totp_segredo, totp_ativo, totp_ultimo_passo, codigos_recuperacao
+    FROM usuarios WHERE id = ?`),
+  userByEmail: db.prepare('SELECT id, nome, email, ativo, confirmado FROM usuarios WHERE email = ?'),
+  insertUserPendente: db.prepare('INSERT INTO usuarios (nome, email, senha_hash, papel, confirmado) VALUES (?, ?, ?, ?, 0)'),
+  confirmarUsuario: db.prepare('UPDATE usuarios SET senha_hash = ?, confirmado = 1 WHERE id = ?'),
+  ativarTotp: db.prepare('UPDATE usuarios SET totp_segredo = ?, totp_ativo = 1, totp_ultimo_passo = ?, codigos_recuperacao = ? WHERE id = ?'),
+  passoTotp: db.prepare('UPDATE usuarios SET totp_ultimo_passo = ? WHERE id = ?'),
+  codigosRecuperacao: db.prepare('UPDATE usuarios SET codigos_recuperacao = ? WHERE id = ?'),
+  zerarTotp: db.prepare('UPDATE usuarios SET totp_segredo = NULL, totp_ativo = 0, totp_ultimo_passo = -1, codigos_recuperacao = NULL WHERE id = ?'),
+  insertToken: db.prepare('INSERT INTO tokens_email (token_hash, usuario_id, tipo, expira_em) VALUES (?, ?, ?, ?)'),
+  token: db.prepare(`
+    SELECT t.usuario_id, t.tipo, u.nome, u.email FROM tokens_email t JOIN usuarios u ON u.id = t.usuario_id
+    WHERE t.token_hash = ? AND t.usado_em IS NULL AND t.expira_em > ? AND u.ativo = 1`),
+  usarToken: db.prepare('UPDATE tokens_email SET usado_em = ? WHERE token_hash = ?'),
+  descartarTokens: db.prepare('DELETE FROM tokens_email WHERE usuario_id = ? AND tipo = ? AND usado_em IS NULL'),
+  tokensVencidos: db.prepare('DELETE FROM tokens_email WHERE expira_em <= ?'),
   hashById: db.prepare('SELECT senha_hash FROM usuarios WHERE id = ?'),
   insertUser: db.prepare('INSERT INTO usuarios (nome, email, senha_hash, papel) VALUES (?, ?, ?, ?)'),
   updateUser: db.prepare('UPDATE usuarios SET nome = ?, email = ?, papel = ?, ativo = ? WHERE id = ?'),
@@ -457,6 +498,116 @@ function normalizeUsuario(body, { senhaObrigatoria }) {
 
 const ehConflitoUnico = (e) => /UNIQUE constraint failed/.test(e.message || '');
 
+// ---------- e-mails, links de uso único e verificação em duas etapas ----------
+
+const escHtml = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+
+// E-mail simples, com versão texto e HTML (estilos inline, que é o que os leitores de e-mail aceitam).
+function montarEmail({ titulo, paragrafos, botao, link, rodape }) {
+  const texto = [titulo, '', ...paragrafos, ...(link ? ['', `${botao}: ${link}`] : []), '', rodape || ''].join('\n');
+  const html = `<!doctype html><html><body style="margin:0;background:#f4f6fa;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:12px;overflow:hidden">
+<tr><td style="background:#011250;color:#fff;padding:18px 24px;font-size:16px;font-weight:bold">${escHtml(EVENT_NAME)} · Painel do sorteio</td></tr>
+<tr><td style="padding:24px">
+<h1 style="margin:0 0 12px;font-size:20px;color:#011250">${escHtml(titulo)}</h1>
+${paragrafos.map((p) => `<p style="margin:0 0 12px;font-size:15px;line-height:1.5">${escHtml(p)}</p>`).join('')}
+${link ? `<p style="margin:20px 0"><a href="${escHtml(link)}" style="display:inline-block;background:#0a1a80;color:#fff;text-decoration:none;font-weight:bold;padding:12px 22px;border-radius:8px">${escHtml(botao)}</a></p>
+<p style="margin:0;font-size:12px;color:#64748b;word-break:break-all">Se o botão não funcionar, copie e cole no navegador:<br>${escHtml(link)}</p>` : ''}
+${rodape ? `<p style="margin:20px 0 0;font-size:12px;color:#64748b">${escHtml(rodape)}</p>` : ''}
+</td></tr></table></td></tr></table></body></html>`;
+  return { texto, html };
+}
+
+async function enviarEmail(para, assunto, conteudo) {
+  await mailer.enviar({ para, assunto, ...montarEmail(conteudo) });
+}
+
+// Endereço usado nos links dos e-mails. Preferimos PUBLIC_URL: montar o link a partir do cabeçalho
+// Host de um pedido anônimo permitiria a alguém mandar à vítima um link para outro site.
+function urlBase(req, { confiarNoHost = false } = {}) {
+  if (PUBLIC_URL) return PUBLIC_URL;
+  if (!confiarNoHost) return null;
+  const proto = req.socket.encrypted || req.headers['x-forwarded-proto'] === 'https' ? 'https' : 'http';
+  return `${proto}://${req.headers.host}`;
+}
+
+const VALIDADE = { convite: 72 * 3600 * 1000, reset: 3600 * 1000 };
+
+function criarToken(usuarioId, tipo) {
+  const token = crypto.randomBytes(32).toString('base64url');
+  q.descartarTokens.run(usuarioId, tipo);
+  q.insertToken.run(sha256(token), usuarioId, tipo, Date.now() + VALIDADE[tipo]);
+  return token;
+}
+setInterval(() => q.tokensVencidos.run(Date.now() - 24 * 3600 * 1000), 60 * 60 * 1000).unref();
+
+// Gera o convite e tenta mandar por e-mail. Sem e-mail configurado, devolve o link para o
+// administrador repassar por outro meio.
+async function enviarConvite(req, alvo, quemConvidou) {
+  const link = `${urlBase(req, { confiarNoHost: true })}/definir-senha#t=${criarToken(alvo.id, 'convite')}`;
+  if (!mailer.configurado()) return { enviado: false, link, motivo: 'O envio de e-mails não está configurado.' };
+  try {
+    await enviarEmail(alvo.email, `Confirme seu acesso ao painel do sorteio — ${EVENT_NAME}`, {
+      titulo: `Olá, ${alvo.nome.split(' ')[0]}!`,
+      paragrafos: [
+        `${quemConvidou.nome} criou um acesso para você no painel do sorteio da ${EVENT_NAME}.`,
+        'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois, no primeiro login, você vai configurar a verificação em duas etapas com um app autenticador no celular.',
+        'O link vale por 72 horas e só pode ser usado uma vez.',
+      ],
+      botao: 'Confirmar cadastro e criar senha',
+      link,
+      rodape: 'Se você não esperava este e-mail, pode ignorá-lo.',
+    });
+    return { enviado: true };
+  } catch (e) {
+    console.error('Falha ao enviar convite:', e.message);
+    return { enviado: false, link, motivo: `Não foi possível enviar o e-mail (${e.message}).` };
+  }
+}
+
+function avisarSenhaAlterada(usuario) {
+  if (!mailer.configurado()) return;
+  enviarEmail(usuario.email, `Sua senha do painel foi alterada — ${EVENT_NAME}`, {
+    titulo: 'Sua senha foi alterada',
+    paragrafos: [
+      `A senha do seu acesso ao painel do sorteio (${usuario.email}) acabou de ser alterada.`,
+      'Se foi você, não precisa fazer nada. Se não foi, fale imediatamente com um administrador.',
+    ],
+  }).catch((e) => console.error('Falha ao enviar aviso de senha:', e.message));
+}
+
+// Etapa intermediária do login: a senha já conferiu, falta o código do app. Fica só na memória
+// e vale 10 minutos, com no máximo 5 tentativas de código.
+const tickets = new Map();
+function criarTicket(usuarioId) {
+  const ticket = crypto.randomBytes(24).toString('base64url');
+  tickets.set(sha256(ticket), { usuarioId, expira: Date.now() + 10 * 60 * 1000, tentativas: 0, segredoNovo: null });
+  return ticket;
+}
+function lerTicket(ticket) {
+  const chave = sha256(String(ticket || ''));
+  const t = tickets.get(chave);
+  if (!t || t.expira < Date.now()) {
+    tickets.delete(chave);
+    return null;
+  }
+  return { chave, t };
+}
+setInterval(() => {
+  for (const [k, t] of tickets) if (t.expira < Date.now()) tickets.delete(k);
+}, 10 * 60 * 1000).unref();
+
+const normalizarRecuperacao = (c) => String(c || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+function gerarCodigosRecuperacao() {
+  return Array.from({ length: 10 }, () => {
+    const c = totp.base32(crypto.randomBytes(5)).toLowerCase();
+    return `${c.slice(0, 4)}-${c.slice(4, 8)}`;
+  });
+}
+
+const limiteEmail = criarLimitador(5, 60 * 60 * 1000);
+
 // ---------- rotas ----------
 
 const routes = [];
@@ -526,13 +677,139 @@ rota('POST', '/api/login', async (req, res) => {
   const u = q.userForLogin.get(email);
   const ok = await conferirSenha(senha, u ? u.senha_hash : await HASH_FALSO);
   if (!u || !ok) chaves.forEach(limiteLogin.contar);
-  if (!u || !ok || !u.ativo) {
+  if (!u || !ok || !u.ativo || !u.confirmado) {
     if (u && ok && !u.ativo) return json(res, 403, { erro: 'Este usuário está desativado.' });
     return json(res, 401, { erro: 'E-mail ou senha incorretos.' });
   }
-  const { cookie } = criarSessao(req, u.id);
-  registrar(u, 'login');
-  json(res, 200, { ok: true }, { 'Set-Cookie': cookie });
+  // Senha certa: falta a segunda etapa (código do app). Quem ainda não configurou, configura agora.
+  json(res, 200, { etapa: u.totp_ativo ? 'codigo' : 'configurar', ticket: criarTicket(u.id) });
+});
+
+rota('POST', '/api/login/configurar', async (req, res) => {
+  if (!mesmaOrigem(req)) return json(res, 403, { erro: 'Pedido recusado.' });
+  const body = await readJson(req).catch(() => ({}));
+  const tk = lerTicket(body.ticket);
+  if (!tk) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
+  const usuario = q.userAuth.get(tk.t.usuarioId);
+  if (!usuario || usuario.totp_ativo) return json(res, 409, { erro: 'A verificação em duas etapas já está configurada.' });
+  tk.t.segredoNovo ||= totp.gerarSegredo();
+  json(res, 200, { segredo: tk.t.segredoNovo, uri: totp.uri(tk.t.segredoNovo, usuario.email, `${EVENT_NAME} Sorteio`) });
+});
+
+rota('POST', '/api/login/verificar', async (req, res) => {
+  if (!mesmaOrigem(req)) return json(res, 403, { erro: 'Pedido recusado.' });
+  const body = await readJson(req).catch(() => ({}));
+  const ip = clientIp(req);
+  if (limiteLogin.excedeu(ip)) return json(res, 429, { erro: 'Muitas tentativas. Aguarde 15 minutos e tente de novo.' });
+  const tk = lerTicket(body.ticket);
+  if (!tk) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
+  const usuario = q.userAuth.get(tk.t.usuarioId);
+  if (!usuario || !usuario.ativo) return json(res, 401, { erro: 'Sua tentativa de login expirou. Entre de novo.' });
+  if (++tk.t.tentativas > 5) {
+    tickets.delete(tk.chave);
+    return json(res, 429, { erro: 'Muitas tentativas. Entre de novo com sua senha.' });
+  }
+
+  let codigosNovos = null;
+  let detalhe = null;
+  if (usuario.totp_ativo) {
+    const passo = totp.verificar(usuario.totp_segredo, body.codigo, usuario.totp_ultimo_passo);
+    if (passo !== null) {
+      q.passoTotp.run(passo, usuario.id);
+    } else {
+      // Código de recuperação (uso único), para quem perdeu o celular.
+      const lista = JSON.parse(usuario.codigos_recuperacao || '[]');
+      const i = lista.indexOf(sha256(normalizarRecuperacao(body.codigo)));
+      if (i < 0 || normalizarRecuperacao(body.codigo).length !== 8) {
+        limiteLogin.contar(ip);
+        return json(res, 401, { erro: 'Código incorreto. Confira o app e tente de novo.' });
+      }
+      lista.splice(i, 1);
+      q.codigosRecuperacao.run(JSON.stringify(lista), usuario.id);
+      detalhe = `Usou um código de recuperação (restam ${lista.length})`;
+    }
+  } else {
+    if (!tk.t.segredoNovo) return json(res, 409, { erro: 'Leia o QR Code no app antes de digitar o código.' });
+    const passo = totp.verificar(tk.t.segredoNovo, body.codigo);
+    if (passo === null) {
+      limiteLogin.contar(ip);
+      return json(res, 401, { erro: 'Código incorreto. Confira se leu o QR Code certo e se o horário do celular está correto.' });
+    }
+    codigosNovos = gerarCodigosRecuperacao();
+    q.ativarTotp.run(tk.t.segredoNovo, passo, JSON.stringify(codigosNovos.map((c) => sha256(normalizarRecuperacao(c)))), usuario.id);
+    registrar(usuario, '2fa.ativado', 'Configurou a verificação em duas etapas');
+  }
+  tickets.delete(tk.chave);
+  const { cookie } = criarSessao(req, usuario.id);
+  registrar(usuario, 'login', detalhe);
+  json(res, 200, { ok: true, codigosRecuperacao: codigosNovos }, { 'Set-Cookie': cookie });
+});
+
+// --- senha: convite e recuperação por e-mail ---
+
+rota('POST', '/api/senha/esqueci', async (req, res) => {
+  if (!mesmaOrigem(req)) return json(res, 403, { erro: 'Pedido recusado.' });
+  const body = await readJson(req).catch(() => ({}));
+  const email = String(body.email || '').trim().toLowerCase();
+  const resposta = { ok: true, mensagem: 'Se este e-mail estiver cadastrado, você vai receber um link para criar uma nova senha em alguns minutos.' };
+  if (!mailer.configurado() || !PUBLIC_URL) {
+    return json(res, 503, { erro: 'A recuperação por e-mail ainda não está configurada. Peça a um administrador para reenviar seu acesso.' });
+  }
+  const chaves = [clientIp(req), `email:${email}`];
+  if (chaves.some(limiteEmail.excedeu)) return json(res, 429, { erro: 'Muitos pedidos. Aguarde uma hora e tente de novo.' });
+  chaves.forEach(limiteEmail.contar);
+  const u = q.userByEmail.get(email);
+  // A resposta é sempre a mesma: não revela se o e-mail tem acesso ou não.
+  if (u && u.ativo) {
+    const tipo = u.confirmado ? 'reset' : 'convite';
+    const link = `${PUBLIC_URL}/definir-senha#t=${criarToken(u.id, tipo)}`;
+    enviarEmail(u.email, `Criar nova senha do painel — ${EVENT_NAME}`, {
+      titulo: 'Criar uma nova senha',
+      paragrafos: [
+        `Recebemos um pedido para criar uma nova senha para ${u.email} no painel do sorteio.`,
+        'Clique no botão abaixo para escolher a nova senha. O link vale por 1 hora e só pode ser usado uma vez.',
+        'A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.',
+      ],
+      botao: 'Criar nova senha',
+      link,
+      rodape: 'Se você não pediu isso, ignore este e-mail: sua senha atual continua valendo.',
+    }).then(() => registrar(u, 'senha.recuperacao', 'Pediu link de recuperação por e-mail'))
+      .catch((e) => console.error('Falha ao enviar recuperação de senha:', e.message));
+  }
+  json(res, 200, resposta);
+});
+
+rota('POST', '/api/senha/verificar', async (req, res) => {
+  if (!mesmaOrigem(req)) return json(res, 403, { erro: 'Pedido recusado.' });
+  const body = await readJson(req).catch(() => ({}));
+  const t = q.token.get(sha256(String(body.token || '')), Date.now());
+  if (!t) return json(res, 410, { erro: 'Este link expirou ou já foi usado. Peça um novo.' });
+  json(res, 200, { nome: t.nome, email: t.email, tipo: t.tipo });
+});
+
+rota('POST', '/api/senha/definir', async (req, res) => {
+  if (!mesmaOrigem(req)) return json(res, 403, { erro: 'Pedido recusado.' });
+  const body = await readJson(req).catch(() => ({}));
+  const hash = sha256(String(body.token || ''));
+  const t = q.token.get(hash, Date.now());
+  if (!t) return json(res, 410, { erro: 'Este link expirou ou já foi usado. Peça um novo.' });
+  const senha = String(body.senha || '');
+  if (senha.length < 8) return json(res, 422, { erro: 'A senha precisa ter pelo menos 8 caracteres.' });
+  if (senha.toLowerCase() === t.email) return json(res, 422, { erro: 'A senha não pode ser igual ao e-mail.' });
+  const novoHash = await hashSenha(senha);
+  transacao(() => {
+    q.usarToken.run(Date.now(), hash);
+    q.confirmarUsuario.run(novoHash, t.usuario_id);
+    q.deleteSessionsOf.run(t.usuario_id);
+  });
+  const usuario = { id: t.usuario_id, nome: t.nome, email: t.email };
+  if (t.tipo === 'convite') {
+    registrar(usuario, 'convite.aceito', 'Confirmou o cadastro e criou a senha');
+  } else {
+    registrar(usuario, 'senha.redefinida', 'Criou nova senha pelo link do e-mail');
+    avisarSenhaAlterada(usuario);
+  }
+  json(res, 200, { ok: true });
 });
 
 rota('POST', '/api/logout', (req, res) => {
@@ -559,6 +836,7 @@ rota('POST', '/api/me/senha', async (req, res) => {
   q.updatePassword.run(await hashSenha(nova), u.id);
   q.deleteOtherSessions.run(u.id, u.tokenHash);
   registrar(u, 'senha.alterada', 'Alterou a própria senha');
+  avisarSenhaAlterada(u);
   json(res, 200, { ok: true });
 });
 
@@ -664,16 +942,44 @@ rota('GET', '/api/admin/usuarios', (req, res) => {
 rota('POST', '/api/admin/usuarios', async (req, res) => {
   const u = exigirUsuario(req, res, 'admin');
   if (!u) return;
-  const d = normalizeUsuario(await readJson(req).catch(() => ({})), { senhaObrigatoria: true });
+  // A senha é criada pela própria pessoa, pelo link do convite. Até lá a conta fica pendente.
+  const d = normalizeUsuario({ ...(await readJson(req).catch(() => ({}))), senha: '' }, { senhaObrigatoria: false });
   if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
+  let novo;
   try {
-    const r = q.insertUser.run(d.nome, d.email, await hashSenha(d.senha), d.papel);
-    registrar(u, 'usuario.criado', `${d.nome} <${d.email}> como ${d.papel}`);
-    json(res, 201, q.userById.get(Number(r.lastInsertRowid)));
+    const r = q.insertUserPendente.run(d.nome, d.email, await hashSenha(crypto.randomBytes(32).toString('hex')), d.papel);
+    novo = q.userById.get(Number(r.lastInsertRowid));
   } catch (e) {
     if (ehConflitoUnico(e)) return json(res, 409, { erro: 'Já existe um usuário com este e-mail.' });
     throw e;
   }
+  const convite = await enviarConvite(req, novo, u);
+  registrar(u, 'usuario.criado', `${d.nome} <${d.email}> como ${d.papel} · convite ${convite.enviado ? 'enviado por e-mail' : 'gerado para envio manual'}`);
+  json(res, 201, { ...novo, convite });
+});
+
+rota('POST', '/api/admin/usuarios/:id/convite', async (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const alvo = q.userById.get(id);
+  if (!alvo) return json(res, 404, { erro: 'Usuário não encontrado.' });
+  if (alvo.confirmado) return json(res, 409, { erro: 'Este usuário já confirmou o cadastro. Para trocar a senha, ele pode usar "Esqueci minha senha".' });
+  const convite = await enviarConvite(req, alvo, u);
+  registrar(u, 'convite.reenviado', `${alvo.nome} <${alvo.email}> · ${convite.enviado ? 'por e-mail' : 'link para envio manual'}`);
+  json(res, 200, { convite });
+});
+
+rota('POST', '/api/admin/usuarios/:id/redefinir-2fa', (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const alvo = q.userById.get(id);
+  if (!alvo) return json(res, 404, { erro: 'Usuário não encontrado.' });
+  transacao(() => {
+    q.zerarTotp.run(id);
+    q.deleteSessionsOf.run(id);
+  });
+  registrar(u, '2fa.redefinido', `${alvo.nome} <${alvo.email}> vai configurar o app de novo no próximo login`);
+  json(res, 200, { ok: true });
 });
 
 rota('PUT', '/api/admin/usuarios/:id', async (req, res, { id }) => {
@@ -687,13 +993,12 @@ rota('PUT', '/api/admin/usuarios/:id', async (req, res, { id }) => {
   if (deixaDeSerAdminAtivo && q.countActiveAdmins.get().n <= 1) {
     return json(res, 409, { erro: 'É preciso manter pelo menos um administrador ativo.' });
   }
-  const novoHash = d.senha ? await hashSenha(d.senha) : null;
+  // Senhas não são mais definidas pelo administrador: cada pessoa cria a sua pelo link do e-mail.
   try {
     transacao(() => {
       q.updateUser.run(d.nome, d.email, d.papel, d.ativo, id);
-      if (novoHash) q.updatePassword.run(novoHash, id);
-      // Desativar ou trocar a senha derruba as sessões abertas desse usuário.
-      if (novoHash || !d.ativo) q.deleteSessionsOf.run(id);
+      // Desativar derruba as sessões abertas desse usuário.
+      if (!d.ativo) q.deleteSessionsOf.run(id);
     });
   } catch (e) {
     if (ehConflitoUnico(e)) return json(res, 409, { erro: 'Já existe um usuário com este e-mail.' });
@@ -704,7 +1009,6 @@ rota('PUT', '/api/admin/usuarios/:id', async (req, res, { id }) => {
   if (alvo.email !== d.email) mudancas.push(`e-mail: ${alvo.email} → ${d.email}`);
   if (alvo.papel !== d.papel) mudancas.push(`perfil: ${alvo.papel} → ${d.papel}`);
   if (alvo.ativo !== d.ativo) mudancas.push(d.ativo ? 'reativado' : 'desativado');
-  if (novoHash) mudancas.push('senha redefinida');
   registrar(u, 'usuario.editado', `${d.nome} · ${mudancas.join('; ') || 'sem mudanças'}`);
   json(res, 200, q.userById.get(id));
 });
@@ -871,6 +1175,8 @@ rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') |
 rota('GET', '/sorteio', (req, res) => serveFile(res, 'index.html'));
 
 rota('GET', '/privacidade', (req, res) => serveFile(res, 'privacidade.html'));
+
+rota('GET', '/definir-senha', (req, res) => serveFile(res, 'definir-senha.html'));
 
 rota('GET', '/login', (req, res) => {
   if (usuarioDaSessao(req)) return redirect(res, '/admin');

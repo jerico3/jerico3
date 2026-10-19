@@ -15,7 +15,8 @@ trocado no painel a qualquer momento (o formulário hoje, o Instagram amanhã) s
 exportado do Figma). Para trocar, substitua o arquivo mantendo a logo na mesma posição, ou ajuste o
 `padding` de `.tela-form` em `public/index.html`.
 
-Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`node:sqlite`).
+Sem dependências externas: usa apenas Node.js (>= 22.13) com o SQLite nativo (`node:sqlite`). O envio
+de e-mail (`mailer.js`) e a verificação em duas etapas (`totp.js`) também usam só módulos nativos.
 
 ## Como rodar
 
@@ -28,10 +29,12 @@ ADMIN_EMAIL=voce@empresa.com ADMIN_PASSWORD=uma-senha-forte EVENT_NAME="Importad
 - Painel: `http://localhost:3000/admin` (redireciona para o login em `/login`)
 
 Na primeira vez que o app sobe com o banco vazio, ele cria um **administrador** com `ADMIN_EMAIL` e
-`ADMIN_PASSWORD`. Depois disso essas variáveis não são mais usadas: os demais usuários são criados pelo
-próprio painel, e cada um pode trocar a senha em **Alterar senha**.
+`ADMIN_PASSWORD`. Depois disso essas variáveis não são mais usadas: os demais usuários são convidados
+pelo painel (recebem um e-mail para confirmar o cadastro e criar a senha). No primeiro login, todo
+usuário configura a **verificação em duas etapas** com um app autenticador.
 
-Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, recarrega ao salvar).
+Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin` e configura o app
+autenticador no primeiro login; recarrega ao salvar).
 
 ### Variáveis de ambiente
 
@@ -49,6 +52,16 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 | `CONTROLADOR_CNPJ` | _(vazio)_         | CNPJ exibido no Aviso de Privacidade.                |
 | `CONTATO_PRIVACIDADE` | _(vazio)_      | E-mail para pedidos dos titulares (LGPD, art. 18).   |
 | `RETENCAO_DIAS`  | `0` (desligado)     | Apaga automaticamente cadastros com mais de N dias.  |
+| `SMTP_HOST`      | _(vazio)_           | Servidor de e-mail. Hostinger: `smtp.hostinger.com`. |
+| `SMTP_PORT`      | `465`               | 465 = SSL; 587 = STARTTLS.                           |
+| `SMTP_USER`      | _(vazio)_           | Conta de e-mail que envia (ex.: `nao-responda@seudominio`). |
+| `SMTP_PASS`      | _(vazio)_           | Senha dessa conta de e-mail.                         |
+| `SMTP_FROM`      | `SMTP_USER`         | Remetente, se for diferente do usuário.              |
+| `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
+
+Sem `SMTP_*`, o painel continua funcionando: o convite vira um link para o administrador copiar e
+enviar, e "Esqueci minha senha" avisa que a recuperação por e-mail não está configurada. Os links dos
+e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de senha funcionar.
 
 ## Funcionalidades
 
@@ -86,6 +99,15 @@ Para desenvolvimento: `npm run dev` (entra com `admin@sorteio.local` / `admin`, 
 **Painel (`/admin`)**
 - **Login** com e-mail e senha (senhas guardadas com hash `scrypt`, sessão de 12 horas em cookie
   `HttpOnly`, bloqueio de 15 minutos após 10 tentativas erradas).
+- **Verificação em duas etapas obrigatória** (TOTP: Google Authenticator, Microsoft Authenticator,
+  Authy). Configurada no primeiro login por QR Code; gera 10 **códigos de recuperação** de uso único.
+  Um código não pode ser reaproveitado, e cada tentativa de login aceita no máximo 5 códigos.
+- **Convite por e-mail**: o administrador informa nome, e-mail e perfil; a pessoa recebe um link
+  (72 h, uso único) para confirmar o cadastro e criar a senha. Até lá a conta fica "convite pendente".
+- **Esqueci minha senha**: link por e-mail (1 h, uso único). A resposta é a mesma para e-mails com
+  ou sem acesso, a nova senha derruba as sessões abertas e a verificação em duas etapas continua
+  valendo. Trocas de senha geram um e-mail de aviso.
+- **Redefinir 2 etapas**: o administrador libera um usuário que perdeu ou trocou de celular.
 - **Perfis**: *Administrador* faz tudo; *Operador* vê e edita cadastros, baixa o CSV e faz sorteios,
   mas não exclui cadastros, não reinicia o histórico e não gerencia usuários.
 - **Cadastros**: editar (nome, telefone, CPF, e-mail) e excluir. O dia do cadastro não muda.

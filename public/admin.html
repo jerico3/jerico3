@@ -381,15 +381,27 @@
         <label for="u-papel">Perfil</label>
         <select id="u-papel"><option value="operador">Operador</option><option value="admin">Administrador</option></select>
       </div>
-      <div class="campo">
-        <label for="u-senha" id="u-senha-label">Senha</label>
-        <input type="password" id="u-senha" autocomplete="new-password">
-        <div class="ajuda" id="u-senha-ajuda"></div>
-      </div>
+      <p class="muted" id="u-convite-info" style="font-size:.85rem;margin:0 0 12px">
+        A pessoa vai receber um e-mail para confirmar o cadastro e criar a própria senha. No primeiro login,
+        ela configura a verificação em duas etapas no celular.
+      </p>
       <label class="check" id="u-ativo-linha"><input type="checkbox" id="u-ativo"> Usuário ativo (pode entrar no painel)</label>
       <div class="rodape-dlg">
         <button type="button" class="btn" data-fechar>Cancelar</button>
         <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="dlg-convite">
+    <form method="dialog">
+      <h3>Envie o convite manualmente</h3>
+      <p id="convite-motivo" style="margin:0 0 12px;color:#334155"></p>
+      <p style="margin:0 0 8px;color:#334155">Copie o link abaixo e envie para a pessoa por WhatsApp ou e-mail. Ele vale por 72 horas e só pode ser usado uma vez.</p>
+      <div class="campo"><input type="text" id="convite-link" readonly></div>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" id="copiar-convite">Copiar link</button>
+        <button value="ok" class="btn primario">Fechar</button>
       </div>
     </form>
   </dialog>
@@ -711,7 +723,11 @@
         const perfil = el('td');
         perfil.append(el('span', u.papel === 'admin' ? 'Administrador' : 'Operador', `tag perfil ${u.papel}`));
         if (!u.ativo) perfil.append(el('span', 'desativado', 'tag perfil inativo'));
+        if (!u.confirmado) perfil.append(el('span', 'convite pendente', 'tag perfil inativo'));
+        else perfil.append(el('span', u.totp_ativo ? '2 etapas ativa' : '2 etapas no próximo login', u.totp_ativo ? 'tag perfil ofertas' : 'tag perfil operador'));
         const acoes = el('td', null, 'acoes');
+        if (!u.confirmado) acoes.append(botao('Reenviar convite', '', () => reenviarConvite(u)));
+        if (u.totp_ativo) acoes.append(botao('Redefinir 2 etapas', '', () => redefinir2fa(u)));
         acoes.append(botao('Editar', '', () => abrirUsuario(u)));
         if (u.id !== eu.id) acoes.append(botao('Excluir', 'perigo', () => excluirUsuario(u)));
         tr.append(nome, el('td', u.email), perfil, el('td', fmtData(u.criado_em)), acoes);
@@ -728,11 +744,7 @@
       $('u-nome').value = u ? u.nome : '';
       $('u-email').value = u ? u.email : '';
       $('u-papel').value = u ? u.papel : 'operador';
-      $('u-senha').value = '';
-      $('u-senha-label').textContent = u ? 'Nova senha (opcional)' : 'Senha';
-      $('u-senha-ajuda').textContent = u
-        ? 'Deixe em branco para manter a senha atual. Se trocar, a pessoa precisa entrar de novo.'
-        : 'Mínimo de 8 caracteres. Passe a senha para a pessoa por um canal seguro.';
+      $('u-convite-info').hidden = !!u;
       $('u-ativo').checked = u ? !!u.ativo : true;
       $('u-ativo-linha').hidden = !u || u.id === eu.id;
       d.showModal();
@@ -742,16 +754,53 @@
     $('form-usuario').onsubmit = async (ev) => {
       ev.preventDefault();
       const d = $('dlg-usuario');
-      const body = { nome: $('u-nome').value, email: $('u-email').value, papel: $('u-papel').value, senha: $('u-senha').value, ativo: $('u-ativo').checked };
+      const body = { nome: $('u-nome').value, email: $('u-email').value, papel: $('u-papel').value, ativo: $('u-ativo').checked };
       try {
-        if (usuarioEditando) await api('PUT', `/api/admin/usuarios/${usuarioEditando.id}`, body);
-        else await api('POST', '/api/admin/usuarios', body);
-        d.close();
-        toast(usuarioEditando ? 'Usuário atualizado.' : 'Usuário criado.');
+        if (usuarioEditando) {
+          await api('PUT', `/api/admin/usuarios/${usuarioEditando.id}`, body);
+          d.close();
+          toast('Usuário atualizado.');
+        } else {
+          const novo = await api('POST', '/api/admin/usuarios', body);
+          d.close();
+          mostrarConvite(novo.email, novo.convite);
+        }
         if (usuarioEditando && usuarioEditando.id === eu.id) await carregarEu();
         if (ehAdmin()) carregarUsuarios(); else abrirAba('sorteio');
       } catch (e) { erroDialogo(d, e.message); }
     };
+
+    function mostrarConvite(email, convite) {
+      if (convite.enviado) return toast(`Convite enviado para ${email}.`);
+      $('convite-motivo').textContent = convite.motivo || '';
+      $('convite-link').value = convite.link;
+      $('copiar-convite').textContent = 'Copiar link';
+      $('copiar-convite').onclick = async () => {
+        try { await navigator.clipboard.writeText(convite.link); $('copiar-convite').textContent = 'Copiado!'; }
+        catch { $('convite-link').select(); }
+      };
+      $('dlg-convite').showModal();
+    }
+
+    async function reenviarConvite(u) {
+      try {
+        const r = await api('POST', `/api/admin/usuarios/${u.id}/convite`, {});
+        mostrarConvite(u.email, r.convite);
+      } catch (e) { toast(e.message, true); }
+    }
+
+    async function redefinir2fa(u) {
+      const voce = u.id === eu.id;
+      const ok = await confirmar(`Redefinir a verificação em 2 etapas de ${voce ? 'você' : u.nome}?`,
+        `Use quando a pessoa trocar ou perder o celular. ${voce ? 'Você vai sair' : 'Ela sai'} do painel e, no próximo login, configura o app de novo. Os códigos de recuperação antigos deixam de valer.`, 'Redefinir');
+      if (!ok) return;
+      try {
+        await api('POST', `/api/admin/usuarios/${u.id}/redefinir-2fa`, {});
+        if (voce) { location.href = '/login'; return; }
+        toast('Verificação em 2 etapas redefinida.');
+        carregarUsuarios();
+      } catch (e) { toast(e.message, true); }
+    }
 
     async function excluirUsuario(u) {
       const ok = await confirmar(`Excluir ${u.nome}?`, `${u.email} perde o acesso ao painel. O histórico de atividade dessa pessoa é mantido.`, 'Excluir');
@@ -779,6 +828,12 @@
       'link.editado': 'Editou link',
       'link.excluido': 'Excluiu link',
       'cadastros.exportados': 'Exportou CSV',
+      '2fa.ativado': 'Ativou 2 etapas',
+      '2fa.redefinido': 'Redefiniu 2 etapas',
+      'convite.aceito': 'Confirmou o cadastro',
+      'convite.reenviado': 'Reenviou convite',
+      'senha.recuperacao': 'Pediu nova senha por e-mail',
+      'senha.redefinida': 'Criou nova senha pelo e-mail',
       'retencao': 'Limpeza automática (retenção)',
     };
 

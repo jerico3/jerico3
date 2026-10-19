@@ -87,36 +87,174 @@
     }
     .erro.show { display: block; }
     .rodape { margin-top: 20px; color: rgba(255, 255, 255, .6); font-size: .8rem; text-align: center; }
+    [hidden] { display: none !important; }
+    .link {
+      background: none; border: 0; padding: 0; font: inherit; font-size: .88rem; font-weight: 600;
+      color: var(--navy-2); cursor: pointer; text-decoration: underline;
+    }
+    .acoes-link { display: flex; justify-content: space-between; gap: 12px; margin-top: 16px; flex-wrap: wrap; }
+    .ok { background: #e8f6ec; color: #166534; border-radius: 10px; padding: 10px 12px; font-size: .88rem; margin-bottom: 16px; }
+    .codigo-input { font-size: 1.4rem !important; letter-spacing: .3em; text-align: center; font-variant-numeric: tabular-nums; }
+    ol.passos { padding-left: 20px; margin: 0 0 16px; font-size: .9rem; color: #334155; }
+    ol.passos li { margin-bottom: 8px; }
+    .qr-box { text-align: center; margin: 4px 0 12px; }
+    .qr-box img { width: 184px; height: 184px; image-rendering: pixelated; border: 1px solid var(--border); border-radius: 10px; padding: 6px; background: #fff; }
+    .chave { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: .85rem; background: #f1f5f9; border-radius: 8px; padding: 8px 10px; word-break: break-all; text-align: center; margin-bottom: 16px; }
+    .codigos { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 1rem; background: #f1f5f9; border-radius: 10px; padding: 14px; margin-bottom: 12px; text-align: center; }
+    .botoes { display: flex; gap: 8px; margin-bottom: 14px; }
+    .secundario { flex: 1; font: inherit; font-weight: 600; font-size: .9rem; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: #fff; color: var(--text); cursor: pointer; }
+    .check { display: flex; gap: 8px; align-items: flex-start; font-size: .88rem; color: #334155; }
+    .check input { width: 18px; height: 18px; margin: 2px 0 0; padding: 0; accent-color: var(--navy-2); }
   </style>
+  <script src="/vendor/qrcode.js"></script>
 </head>
 <body>
   <main class="card">
     <div class="selo" aria-hidden="true">
       <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
     </div>
-    <h1>Painel do sorteio</h1>
-    <p class="sub">Acesso restrito à equipe organizadora.</p>
+    <div class="erro" id="erro" role="alert"></div>
 
-    <form id="form" novalidate>
-      <div class="erro" id="erro" role="alert"></div>
-      <div class="campo">
-        <label for="email">E-mail</label>
-        <input type="email" id="email" autocomplete="username" required autofocus>
-      </div>
-      <div class="campo">
-        <label for="senha">Senha</label>
-        <div class="senha">
-          <input type="password" id="senha" autocomplete="current-password" required>
-          <button type="button" class="mostrar" id="mostrar" aria-controls="senha">Mostrar</button>
+    <!-- 1. E-mail e senha -->
+    <section id="passo-senha">
+      <h1>Painel do sorteio</h1>
+      <p class="sub">Acesso restrito à equipe organizadora.</p>
+      <form id="form-senha" novalidate>
+        <div class="campo">
+          <label for="email">E-mail</label>
+          <input type="email" id="email" autocomplete="username" required autofocus>
         </div>
+        <div class="campo">
+          <label for="senha">Senha</label>
+          <div class="senha">
+            <input type="password" id="senha" autocomplete="current-password" required>
+            <button type="button" class="mostrar" id="mostrar" aria-controls="senha">Mostrar</button>
+          </div>
+        </div>
+        <button type="submit" class="entrar">Entrar</button>
+      </form>
+      <div class="acoes-link"><button type="button" class="link" id="ir-esqueci">Esqueci minha senha</button></div>
+    </section>
+
+    <!-- 2a. Código do app -->
+    <section id="passo-codigo" hidden>
+      <h1>Verificação em duas etapas</h1>
+      <p class="sub" id="codigo-dica">Abra o app autenticador no celular e digite o código de 6 dígitos.</p>
+      <form id="form-codigo" novalidate>
+        <div class="campo">
+          <label for="codigo" id="codigo-label">Código do app</label>
+          <input type="text" id="codigo" class="codigo-input" inputmode="numeric" autocomplete="one-time-code" maxlength="9" required>
+        </div>
+        <button type="submit" class="entrar">Confirmar</button>
+      </form>
+      <div class="acoes-link">
+        <button type="button" class="link" id="usar-recuperacao">Perdi o celular: usar código de recuperação</button>
+        <button type="button" class="link" data-voltar>Voltar</button>
       </div>
-      <button type="submit" class="entrar" id="entrar">Entrar</button>
-    </form>
+    </section>
+
+    <!-- 2b. Primeira vez: configurar o app -->
+    <section id="passo-configurar" hidden>
+      <h1>Proteja sua conta</h1>
+      <p class="sub">O painel exige verificação em duas etapas. Leva 1 minuto e é feito só uma vez.</p>
+      <ol class="passos">
+        <li>Instale no celular um app autenticador: <strong>Google Authenticator</strong>, <strong>Microsoft Authenticator</strong> ou <strong>Authy</strong>.</li>
+        <li>No app, toque em <strong>+</strong> e leia o QR Code abaixo.</li>
+        <li>Digite o código de 6 dígitos que aparecer no app.</li>
+      </ol>
+      <div class="qr-box" id="qr-2fa"></div>
+      <div class="chave">Não consegue ler? Digite esta chave no app:<br><strong id="chave-2fa"></strong></div>
+      <form id="form-configurar" novalidate>
+        <div class="campo">
+          <label for="codigo-novo">Código do app</label>
+          <input type="text" id="codigo-novo" class="codigo-input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" required>
+        </div>
+        <button type="submit" class="entrar">Ativar e entrar</button>
+      </form>
+      <div class="acoes-link"><button type="button" class="link" data-voltar>Voltar</button></div>
+    </section>
+
+    <!-- 3. Códigos de recuperação (mostrados uma única vez) -->
+    <section id="passo-recuperacao" hidden>
+      <h1>Guarde seus códigos de recuperação</h1>
+      <p class="sub">Se você perder o celular, cada código abaixo permite entrar uma vez no lugar do código do app. Eles não serão mostrados de novo.</p>
+      <div class="codigos" id="lista-codigos"></div>
+      <div class="botoes">
+        <button type="button" class="secundario" id="copiar-codigos">Copiar</button>
+        <button type="button" class="secundario" id="baixar-codigos">Baixar .txt</button>
+      </div>
+      <label class="check"><input type="checkbox" id="guardei"> Guardei os códigos em um lugar seguro.</label>
+      <button type="button" class="entrar" id="continuar" disabled style="margin-top:16px">Continuar para o painel</button>
+    </section>
+
+    <!-- Esqueci minha senha -->
+    <section id="passo-esqueci" hidden>
+      <h1>Esqueci minha senha</h1>
+      <p class="sub">Informe seu e-mail. Se ele tiver acesso ao painel, enviaremos um link para criar uma nova senha.</p>
+      <div class="ok" id="esqueci-ok" hidden></div>
+      <form id="form-esqueci" novalidate>
+        <div class="campo">
+          <label for="email-esqueci">E-mail</label>
+          <input type="email" id="email-esqueci" autocomplete="username" required>
+        </div>
+        <button type="submit" class="entrar">Enviar link</button>
+      </form>
+      <div class="acoes-link"><button type="button" class="link" data-voltar>Voltar ao login</button></div>
+    </section>
   </main>
-  <p class="rodape">Esqueceu a senha? Peça a um administrador para redefinir.</p>
+  <p class="rodape" id="rodape">Problemas para entrar? Fale com um administrador do painel.</p>
 
   <script>
     const $ = (id) => document.getElementById(id);
+    let ticket = null;
+    let modoRecuperacao = false;
+
+    function mostrarPasso(id) {
+      document.querySelectorAll('main > section').forEach((s) => s.hidden = s.id !== id);
+      erro('');
+      const foco = document.querySelector(`#${id} input`);
+      if (foco) setTimeout(() => foco.focus(), 30);
+    }
+
+    function erro(msg) {
+      $('erro').textContent = msg;
+      $('erro').classList.toggle('show', !!msg);
+    }
+
+    async function post(url, body) {
+      let res;
+      try {
+        res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      } catch {
+        throw new Error('Sem conexão. Tente novamente.');
+      }
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const e = new Error(data.erro || 'Algo deu errado. Tente novamente.');
+        e.status = res.status;
+        throw e;
+      }
+      return data;
+    }
+
+    // Botão "Enviando…" enquanto espera a resposta.
+    async function comBotao(form, fn) {
+      const btn = form.querySelector('button[type=submit]');
+      const texto = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = 'Aguarde…';
+      try { await fn(); } catch (e) {
+        erro(e.message);
+        // Tentativa de login expirada: volta para a senha.
+        if (e.status === 401 && /expirou|de novo com sua senha/.test(e.message)) mostrarPasso('passo-senha');
+        if (e.status === 429 && /de novo com sua senha/.test(e.message)) mostrarPasso('passo-senha');
+      } finally {
+        btn.disabled = false;
+        btn.textContent = texto;
+      }
+    }
+
+    document.querySelectorAll('[data-voltar]').forEach((b) => b.onclick = () => { ticket = null; mostrarPasso('passo-senha'); });
 
     $('mostrar').addEventListener('click', () => {
       const visivel = $('senha').type === 'text';
@@ -124,35 +262,107 @@
       $('mostrar').textContent = visivel ? 'Mostrar' : 'Ocultar';
     });
 
-    $('form').addEventListener('submit', async (e) => {
+    // 1. senha
+    $('form-senha').addEventListener('submit', (e) => {
       e.preventDefault();
-      const erro = $('erro');
-      erro.classList.remove('show');
+      erro('');
       const email = $('email').value.trim();
       const senha = $('senha').value;
-      if (!email || !senha) {
-        erro.textContent = 'Informe e-mail e senha.';
-        return erro.classList.add('show');
-      }
-      const btn = $('entrar');
-      btn.disabled = true;
-      btn.textContent = 'Entrando…';
-      try {
-        const res = await fetch('/api/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, senha }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.erro || 'Não foi possível entrar.');
+      if (!email || !senha) return erro('Informe e-mail e senha.');
+      comBotao(e.target, async () => {
+        const r = await post('/api/login', { email, senha });
+        ticket = r.ticket;
+        $('senha').value = '';
+        if (r.etapa === 'configurar') return iniciarConfiguracao();
+        modoRecuperacao = false;
+        atualizarModoCodigo();
+        $('codigo').value = '';
+        mostrarPasso('passo-codigo');
+      });
+    });
+
+    // 2a. código do app (ou de recuperação)
+    function atualizarModoCodigo() {
+      $('codigo-label').textContent = modoRecuperacao ? 'Código de recuperação' : 'Código do app';
+      $('codigo-dica').textContent = modoRecuperacao
+        ? 'Digite um dos códigos de recuperação que você guardou (ex.: abcd-efgh). Cada um vale uma vez.'
+        : 'Abra o app autenticador no celular e digite o código de 6 dígitos.';
+      $('codigo').inputMode = modoRecuperacao ? 'text' : 'numeric';
+      $('codigo').classList.toggle('codigo-input', !modoRecuperacao);
+      $('usar-recuperacao').textContent = modoRecuperacao ? 'Usar o código do app' : 'Perdi o celular: usar código de recuperação';
+    }
+    $('usar-recuperacao').onclick = () => { modoRecuperacao = !modoRecuperacao; atualizarModoCodigo(); $('codigo').value = ''; $('codigo').focus(); };
+
+    $('form-codigo').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const codigo = $('codigo').value.trim();
+      if (!codigo) return erro('Digite o código.');
+      comBotao(e.target, async () => {
+        await post('/api/login/verificar', { ticket, codigo });
         location.href = '/admin';
-      } catch (err) {
-        erro.textContent = err.message === 'Failed to fetch' ? 'Sem conexão. Tente novamente.' : err.message;
-        erro.classList.add('show');
-        $('senha').select();
-        btn.disabled = false;
-        btn.textContent = 'Entrar';
-      }
+      });
+    });
+
+    // 2b. configurar o app
+    async function iniciarConfiguracao() {
+      const r = await post('/api/login/configurar', { ticket });
+      const qr = qrcode(0, 'M');
+      qr.addData(r.uri);
+      qr.make();
+      const img = document.createElement('img');
+      img.src = qr.createDataURL(6, 2);
+      img.alt = 'QR Code para o app autenticador';
+      $('qr-2fa').replaceChildren(img);
+      $('chave-2fa').textContent = r.segredo.replace(/(.{4})/g, '$1 ').trim();
+      $('codigo-novo').value = '';
+      mostrarPasso('passo-configurar');
+    }
+
+    $('form-configurar').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const codigo = $('codigo-novo').value.trim();
+      if (!/^\d{6}$/.test(codigo)) return erro('Digite os 6 números que aparecem no app.');
+      comBotao(e.target, async () => {
+        const r = await post('/api/login/verificar', { ticket, codigo });
+        mostrarCodigos(r.codigosRecuperacao || []);
+      });
+    });
+
+    // 3. códigos de recuperação
+    function mostrarCodigos(codigos) {
+      $('lista-codigos').replaceChildren(...codigos.map((c) => Object.assign(document.createElement('span'), { textContent: c })));
+      const texto = `Códigos de recuperação do painel do sorteio\n(cada um vale uma vez)\n\n${codigos.join('\n')}\n`;
+      $('copiar-codigos').onclick = async () => {
+        try { await navigator.clipboard.writeText(texto); $('copiar-codigos').textContent = 'Copiado!'; } catch { $('copiar-codigos').textContent = 'Não foi possível copiar'; }
+      };
+      $('baixar-codigos').onclick = () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([texto], { type: 'text/plain' }));
+        a.download = 'codigos-recuperacao-painel.txt';
+        a.click();
+      };
+      mostrarPasso('passo-recuperacao');
+    }
+    $('guardei').onchange = () => { $('continuar').disabled = !$('guardei').checked; };
+    $('continuar').onclick = () => { location.href = '/admin'; };
+
+    // esqueci minha senha
+    $('ir-esqueci').onclick = () => {
+      $('email-esqueci').value = $('email').value.trim();
+      $('esqueci-ok').hidden = true;
+      $('form-esqueci').hidden = false;
+      mostrarPasso('passo-esqueci');
+    };
+    $('form-esqueci').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const email = $('email-esqueci').value.trim();
+      if (!email) return erro('Informe seu e-mail.');
+      comBotao(e.target, async () => {
+        const r = await post('/api/senha/esqueci', { email });
+        $('esqueci-ok').textContent = r.mensagem;
+        $('esqueci-ok').hidden = false;
+        $('form-esqueci').hidden = true;
+      });
     });
   </script>
 </body>
