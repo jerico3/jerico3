@@ -1577,6 +1577,9 @@ criarPrimeiroAdmin().then(() => {
     console.log(`Painel: http://localhost:${PORT}/admin`);
     const total = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
     console.log(`Banco de dados: ${path.resolve(DB_PATH)} (${total('usuarios')} usuários, ${total('participantes')} cadastros)`);
+    console.log(mailer.configurado()
+      ? `E-mail: ligado (${process.env.SMTP_HOST}, enviando como ${process.env.SMTP_FROM || process.env.SMTP_USER})`
+      : 'E-mail: desligado (defina SMTP_HOST, SMTP_USER e SMTP_PASS). Convites, recuperação de senha e avisos de cadastro não são enviados.');
     // Na Hostinger (e em outros serviços que publicam a partir do Git) a pasta do app é recriada a
     // cada publicação: um banco guardado dentro dela some junto, com cadastros e usuários.
     const rel = path.relative(__dirname, path.resolve(DB_PATH));
