@@ -136,7 +136,8 @@
       display: grid; place-items: center;
       margin-bottom: 18px;
     }
-    .resultado h2 { margin: 0 0 22px; font-size: clamp(1.05rem, 4.6vw, 1.4rem); font-weight: 800; letter-spacing: .01em; }
+    .saudacao { margin: 0 0 6px; font-size: clamp(1.35rem, 6vw, 1.8rem); font-weight: 800; }
+    .resultado h2 { margin: 16px 0 12px; font-size: .8rem; font-weight: 800; letter-spacing: .14em; opacity: .8; }
     .codigo {
       width: min(100%, 460px);
       background: var(--code-bg);
@@ -148,7 +149,12 @@
     }
     .aviso { margin: 20px 0 0; max-width: 420px; font-size: .9rem; opacity: .8; }
     .aviso.leve { margin-top: 6px; font-size: .82rem; opacity: .65; }
-    .novo { margin-top: 18px; background: none; border: 0; color: #fff; opacity: .75; font: inherit; font-size: .85rem; text-decoration: underline; cursor: pointer; padding: 10px; }
+    .passos { list-style: none; margin: 22px 0 0; padding: 16px 18px; max-width: 420px; text-align: left; background: rgba(255, 255, 255, .08); border-radius: 12px; font-size: .88rem; line-height: 1.45; }
+    .passos li { display: flex; gap: 10px; }
+    .passos li + li { margin-top: 10px; }
+    .passos b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: var(--navy); display: grid; place-items: center; font-size: .78rem; }
+    .boa-sorte { margin: 22px 0 0; font-size: 1.3rem; font-weight: 800; }
+    .marca { margin-top: 26px; font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
   </style>
 </head>
 <body>
@@ -199,11 +205,17 @@
       <div class="ok" aria-hidden="true">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#011250" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
       </div>
+      <p class="saudacao" id="saudacao">Você está concorrendo!</p>
+      <p class="aviso" id="sub" style="margin-top:0">Seu cadastro foi confirmado.</p>
       <h2>SEU CÓDIGO DE PARTICIPAÇÃO</h2>
       <div class="codigo" id="codigo">VW-0000</div>
-      <p class="aviso" id="aviso">Tire um print desta tela e guarde seu código para o sorteio.</p>
-      <p class="aviso leve">Válido para o sorteio do evento de hoje.</p>
-      <button type="button" class="novo" id="novo">Cadastrar outra pessoa</button>
+      <p class="aviso" id="aviso"></p>
+      <ol class="passos">
+        <li><b>1</b><span>O sorteio acontece durante o evento de hoje. Fique atento ao anúncio dos códigos.</span></li>
+        <li><b>2</b><span>Se o seu código for chamado, apresente este comprovante à nossa equipe para retirar o brinde.</span></li>
+      </ol>
+      <p class="boa-sorte">Boa sorte! 🍀</p>
+      <p class="marca"><span id="marca-comprovante">Importadora Volkswagen</span> · Comprovante de participação</p>
     </div>
   </main>
 
@@ -223,12 +235,16 @@
 
     const formatCodigo = (id) => prefixo + String(id).padStart(4, '0');
 
-    function mostrarCodigo({ id, nome, jaCadastrado }) {
+    function mostrarCodigo({ id, nome, jaCadastrado, emailEnviado }) {
       const primeiroNome = (nome || '').split(' ')[0];
       $('codigo').textContent = formatCodigo(id);
-      $('aviso').textContent = jaCadastrado
-        ? `${primeiroNome ? primeiroNome + ', você' : 'Você'} já se cadastrou hoje. Seu código continua o mesmo.`
-        : `${primeiroNome ? primeiroNome + ', tire' : 'Tire'} um print desta tela e guarde seu código para o sorteio.`;
+      $('saudacao').textContent = primeiroNome ? `${primeiroNome}, você está concorrendo!` : 'Você está concorrendo!';
+      $('sub').textContent = jaCadastrado
+        ? 'Você já se cadastrou hoje. Seu código continua o mesmo.'
+        : 'Seu cadastro foi confirmado e você já participa do sorteio de brindes exclusivos.';
+      $('aviso').textContent = emailEnviado
+        ? `Enviamos o comprovante para ${emailEnviado}.`
+        : 'Guarde este código: é com ele que você concorre.';
       $('tela-form').hidden = true;
       $('tela-codigo').hidden = false;
       window.scrollTo(0, 0);
@@ -300,14 +316,6 @@
       }
     });
 
-    $('novo').addEventListener('click', () => {
-      storage('del');
-      $('form').reset();
-      $('tela-codigo').hidden = true;
-      $('tela-form').hidden = false;
-      $('nome').focus();
-    });
-
     function restaurar() {
       // Reabrir a página (ou escanear o QR de novo) no mesmo dia mostra o código já recebido.
       // Em outro dia (outro evento), a pessoa precisa se cadastrar de novo.
@@ -321,6 +329,7 @@
       if (cfg.hoje) hoje = cfg.hoje;
       if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
       if (cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.privacidade.controlador;
+      if (cfg.marca) $('marca-comprovante').textContent = cfg.marca;
     }).catch(() => {}).finally(restaurar);
   </script>
 </body>

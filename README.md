@@ -58,7 +58,8 @@ autenticador no primeiro login; recarrega ao salvar).
 | `SMTP_PASS`      | _(vazio)_           | Senha dessa conta de e-mail.                         |
 | `SMTP_FROM`      | `SMTP_USER`         | Remetente, se for diferente do usuário.              |
 | `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
-| `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails.   |
+| `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails da equipe. |
+| `MARCA_NOME`     | `Importadora Volkswagen` | Marca mostrada ao participante (tela do código e comprovante por e-mail). |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
 | `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
 | `BACKUP_HORAS`   | `6`                 | Intervalo entre backups automáticos (também faz um ao iniciar). |
@@ -74,7 +75,9 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
-- Ao clicar em **Enviar**, a pessoa vê a tela "Seu código de participação" com o código.
+- Ao clicar em **Enviar**, a pessoa vê o comprovante na tela ("Você está concorrendo!", o código,
+  como funciona o sorteio e "Boa sorte!") e recebe o mesmo comprovante por e-mail, com a marca
+  `MARCA_NOME` (sem o nome do sistema interno).
 - A data do cadastro é registrada (no fuso de Brasília).
 - **Um cadastro por CPF por dia**: se a pessoa tentar de novo no mesmo dia, vê o mesmo código; em
   outro dia (outro evento), recebe um código novo, que vale para o sorteio daquele dia. O telefone
@@ -96,7 +99,8 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - O Aviso de Privacidade é um modelo: **revise com o jurídico** antes de usar.
 
 **Notificações por e-mail** (precisa do `SMTP_*`)
-- Quem se cadastra recebe um e-mail com o código de participação.
+- Quem se cadastra recebe o **comprovante de participação**: código, nome, dia do evento e como
+  funciona o sorteio. A tela mostra para qual e-mail (mascarado) ele foi enviado.
 - Administradores recebem um e-mail a cada novo cadastro (nome, código e CPF mascarado). Cada um pode
   desligar em Usuários → Editar → "Receber e-mail a cada novo cadastro".
 - Com o painel aberto, um aviso aparece quando chegam cadastros novos.

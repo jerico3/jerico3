@@ -33,6 +33,9 @@ const SESSION_HOURS = 12;
 const TOTP_EMISSOR = process.env.TOTP_EMISSOR || APP_NOME;
 // Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
 const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
+// Marca mostrada ao participante (tela do código e e-mail de comprovante). O nome do sistema
+// (APP_NOME, "Central de Gestão") aparece só para a equipe.
+const MARCA = process.env.MARCA_NOME || 'Importadora Volkswagen';
 const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
 const CONTATO_PRIVACIDADE = process.env.CONTATO_PRIVACIDADE || '';
 // Cadastros com mais de N dias são apagados automaticamente (0 = não apaga).
@@ -555,8 +558,62 @@ ${rodape ? `<p style="margin:20px 0 0;font-size:12px;color:#64748b">${escHtml(ro
   return { texto, html };
 }
 
+// Comprovante de participação enviado a quem se cadastra: com a marca da importadora, sem o nome
+// do sistema interno.
+function montarComprovante({ nome, cod, dia, quando }) {
+  const primeiro = nome.split(' ')[0];
+  const passos = [
+    `O sorteio acontece durante o evento de ${diaBr(dia)}. Só concorrem os cadastros feitos nesse dia.`,
+    'Fique atento: os códigos sorteados são anunciados no local.',
+    'Se o seu código for chamado, apresente este comprovante à nossa equipe. Vamos conferir seu nome e CPF para entregar o brinde.',
+  ];
+  const privacidade = PUBLIC_URL ? ` Saiba como usamos seus dados: ${PUBLIC_URL}/privacidade` : '';
+  const texto = [
+    `${MARCA} · Comprovante de participação`, '',
+    `${primeiro}, você está concorrendo a brindes exclusivos!`, '',
+    `Seu código de participação: ${cod}`,
+    `Participante: ${nome}`,
+    `Evento: ${diaBr(dia)} · cadastro feito em ${quando}`, '',
+    'Como funciona:', ...passos.map((p, i) => `${i + 1}. ${p}`), '',
+    'Boa sorte!', `Equipe ${MARCA}`, '',
+    `Você recebeu este e-mail porque se cadastrou no sorteio de brindes da ${MARCA}.${privacidade}`,
+  ].join('\n');
+  const logo = PUBLIC_URL ? `<img src="${escHtml(PUBLIC_URL)}/qr-logo.png" width="56" height="56" alt="" style="display:block;margin:0 auto 10px;border-radius:50%">` : '';
+  const html = `<!doctype html><html><body style="margin:0;background:#eef1f7;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;overflow:hidden">
+<tr><td align="center" style="background:#011250;color:#fff;padding:26px 24px 22px">
+${logo}<div style="font-size:18px;font-weight:bold;letter-spacing:.02em">${escHtml(MARCA)}</div>
+<div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.12em;margin-top:4px">Comprovante de participação</div>
+</td></tr>
+<tr><td style="padding:28px 24px 8px;text-align:center">
+<h1 style="margin:0 0 6px;font-size:22px;color:#011250">${escHtml(primeiro)}, você está concorrendo!</h1>
+<p style="margin:0 0 20px;font-size:15px;color:#475569">Seu cadastro foi confirmado e você já participa do sorteio de brindes exclusivos.</p>
+<div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.12em;font-weight:bold">Seu código</div>
+<div style="margin:8px auto 0;display:inline-block;background:#011250;color:#fff;font-size:34px;font-weight:bold;letter-spacing:.06em;padding:14px 28px;border-radius:10px">${escHtml(cod)}</div>
+</td></tr>
+<tr><td style="padding:20px 24px 4px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0">
+<tr><td style="padding:10px 0;color:#64748b">Participante</td><td style="padding:10px 0;text-align:right;font-weight:bold">${escHtml(nome)}</td></tr>
+<tr><td style="padding:10px 0;color:#64748b;border-top:1px solid #f1f5f9">Evento</td><td style="padding:10px 0;text-align:right;font-weight:bold;border-top:1px solid #f1f5f9">${escHtml(diaBr(dia))}</td></tr>
+<tr><td style="padding:10px 0;color:#64748b;border-top:1px solid #f1f5f9">Cadastro feito em</td><td style="padding:10px 0;text-align:right;border-top:1px solid #f1f5f9">${escHtml(quando)}</td></tr>
+</table></td></tr>
+<tr><td style="padding:18px 24px 4px">
+<div style="font-size:15px;font-weight:bold;color:#011250;margin-bottom:8px">Como funciona</div>
+${passos.map((p, i) => `<p style="margin:0 0 10px;font-size:14px;line-height:1.5"><b style="color:#0a1a80">${i + 1}.</b> ${escHtml(p)}</p>`).join('')}
+</td></tr>
+<tr><td align="center" style="padding:14px 24px 28px">
+<div style="font-size:20px;font-weight:bold;color:#011250">Boa sorte! 🍀</div>
+<div style="font-size:13px;color:#64748b;margin-top:4px">Equipe ${escHtml(MARCA)}</div>
+</td></tr>
+<tr><td style="background:#f8fafc;padding:14px 24px;font-size:11px;color:#94a3b8;line-height:1.5">
+Você recebeu este e-mail porque se cadastrou no sorteio de brindes da ${escHtml(MARCA)}. Este é um e-mail automático, não é preciso responder.${PUBLIC_URL ? ` <a href="${escHtml(PUBLIC_URL)}/privacidade" style="color:#64748b">Como usamos seus dados</a>.` : ''}
+</td></tr></table></td></tr></table></body></html>`;
+  return { texto, html };
+}
+
 async function enviarEmail(para, assunto, conteudo) {
-  await mailer.enviar({ para, assunto, ...montarEmail(conteudo) });
+  await mailer.enviar({ para, assunto, ...(conteudo.html ? conteudo : montarEmail(conteudo)) });
 }
 
 // Endereço usado nos links dos e-mails. Preferimos PUBLIC_URL: montar o link a partir do cabeçalho
@@ -657,15 +714,9 @@ function enfileirarEmail(para, assunto, conteudo) {
 // que deixaram ligada a opção "Receber e-mail a cada novo cadastro".
 function notificarCadastro(p) {
   const cod = codigo(p.id);
-  enfileirarEmail(p.email, `Seu código de participação: ${cod} — ${EVENT_NAME}`, {
-    titulo: `Você está participando, ${p.nome.split(' ')[0]}!`,
-    paragrafos: [
-      `Seu cadastro no sorteio de brindes da ${EVENT_NAME} foi confirmado.`,
-      `Seu código de participação é ${cod}. Guarde este e-mail: o código será usado no sorteio do evento de ${diaBr(p.dia)}.`,
-      'Boa sorte!',
-    ],
-    rodape: `Você recebeu este e-mail porque se cadastrou no sorteio${PUBLIC_URL ? `. Saiba como usamos seus dados em ${PUBLIC_URL}/privacidade` : ''}.`,
-  });
+  const quando = new Date().toLocaleString('pt-BR', { timeZone: TIMEZONE, dateStyle: 'short', timeStyle: 'short' });
+  enfileirarEmail(p.email, `Você está concorrendo! Seu código é ${cod} · ${MARCA}`,
+    montarComprovante({ nome: p.nome, cod, dia: p.dia, quando }));
   const mascara = `***.${p.cpf.slice(3, 6)}.${p.cpf.slice(6, 9)}-**`;
   for (const { email } of q.adminsNotificados.all()) {
     enfileirarEmail(email, `Novo cadastro ${cod} — ${p.nome}`, {
@@ -800,6 +851,7 @@ function rota(method, pattern, handler) {
 rota('GET', '/api/config', (req, res) => json(res, 200, {
   evento: EVENT_NAME,
   app: APP_NOME,
+  marca: MARCA,
   prefixo: CODE_PREFIX,
   hoje: hoje(),
   publicUrl: PUBLIC_URL,
@@ -811,6 +863,11 @@ rota('GET', '/api/config', (req, res) => json(res, 200, {
     versao: TERMOS_VERSAO,
   },
 }));
+
+// Para a tela do código dizer para onde foi o comprovante (e-mail mascarado: f***@gmail.com).
+const avisoEmail = (email) => (mailer.configurado() && email
+  ? { emailEnviado: email.replace(/^(.)[^@]*(@.*)$/, '$1***$2') }
+  : {});
 
 rota('POST', '/api/cadastro', async (req, res) => {
   limiteCadastro.contar(clientIp(req));
@@ -838,12 +895,12 @@ rota('POST', '/api/cadastro', async (req, res) => {
     if (existing.telefone !== data.telefone) {
       return json(res, 409, { erro: 'Este CPF já foi cadastrado hoje. Se foi você, informe o mesmo telefone usado no cadastro.' });
     }
-    return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true });
+    return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true, ...avisoEmail(existing.email) });
   }
   const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
   const id = Number(r.lastInsertRowid);
   notificarCadastro({ id, ...data, dia });
-  return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false });
+  return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false, ...avisoEmail(data.email) });
 });
 
 // --- login ---
