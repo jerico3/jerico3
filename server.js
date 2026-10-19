@@ -1305,5 +1305,15 @@ criarPrimeiroAdmin().then(() => {
   server.listen(PORT, () => {
     console.log(`Sorteio "${EVENT_NAME}" rodando em http://localhost:${PORT}`);
     console.log(`Painel: http://localhost:${PORT}/admin`);
+    const total = (t) => db.prepare(`SELECT COUNT(*) AS n FROM ${t}`).get().n;
+    console.log(`Banco de dados: ${path.resolve(DB_PATH)} (${total('usuarios')} usuários, ${total('participantes')} cadastros)`);
+    // Na Hostinger (e em outros serviços que publicam a partir do Git) a pasta do app é recriada a
+    // cada publicação: um banco guardado dentro dela some junto, com cadastros e usuários.
+    const rel = path.relative(__dirname, path.resolve(DB_PATH));
+    if (!rel.startsWith('..') && !path.isAbsolute(rel) && !process.env.DB_PATH_DENTRO_DO_APP_OK) {
+      console.warn('[ATENÇÃO] O banco de dados está dentro da pasta do app. Se a hospedagem recria essa pasta a cada');
+      console.warn('          publicação, cadastros e usuários são apagados. Defina DB_PATH fora dela,');
+      console.warn('          por exemplo /home/SEU_USUARIO/sorteio-data/sorteio.db (no Docker, use o volume).');
+    }
   });
 });
