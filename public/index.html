@@ -149,10 +149,7 @@
     }
     .aviso { margin: 20px 0 0; max-width: 420px; font-size: .9rem; opacity: .8; }
     .aviso.leve { margin-top: 6px; font-size: .82rem; opacity: .65; }
-    .passos { list-style: none; margin: 22px 0 0; padding: 16px 18px; max-width: 420px; text-align: left; background: rgba(255, 255, 255, .08); border-radius: 12px; font-size: .88rem; line-height: 1.45; }
-    .passos li { display: flex; gap: 10px; }
-    .passos li + li { margin-top: 10px; }
-    .passos b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: var(--navy); display: grid; place-items: center; font-size: .78rem; }
+    .passos { list-style: none; margin: 22px 0 0; padding: 16px 18px; max-width: 420px; text-align: center; background: rgba(255, 255, 255, .08); border-radius: 12px; font-size: .88rem; line-height: 1.45; }
     .insta { margin-top: 22px; display: inline-flex; align-items: center; gap: 10px; background: #fff; color: var(--navy); text-decoration: none; font-weight: 700; padding: 13px 22px; border-radius: 12px; }
     .insta small { display: block; font-weight: 500; font-size: .75rem; color: #64748b; }
     .marca { margin-top: 26px; font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
@@ -211,10 +208,7 @@
       <h2>SEU CÓDIGO DE PARTICIPAÇÃO</h2>
       <div class="codigo" id="codigo">VW-0000</div>
       <p class="aviso" id="aviso"></p>
-      <ol class="passos">
-        <li><b>1</b><span>Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail do cadastro.</span></li>
-        <li><b>2</b><span>Seu cadastro vale para todos os nossos eventos. Se vier a outro, preencha o formulário de novo para registrar sua presença: o código continua o mesmo.</span></li>
-      </ol>
+      <p class="passos">Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail do cadastro.</p>
       <a class="insta" id="insta" href="#" target="_blank" rel="noopener" hidden>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
         <span>Siga a <span class="insta-marca">Importadora</span> no Instagram<small id="insta-arroba"></small></span>
@@ -248,8 +242,8 @@
       $('sub').textContent = !jaCadastrado
         ? 'Seu cadastro foi confirmado e você já está concorrendo a brindes exclusivos.'
         : novaPresenca
-          ? 'Você já tinha cadastro. Registramos sua presença neste evento e seu código continua o mesmo.'
-          : 'Você já está cadastrado e sua presença de hoje já foi registrada. Seu código continua o mesmo.';
+          ? 'Você já tem cadastro e continua concorrendo. Seu código é o mesmo.'
+          : 'Você já está cadastrado. Seu código continua o mesmo.';
       $('aviso').textContent = emailEnviado
         ? (jaCadastrado ? `O comprovante foi enviado para ${emailEnviado} no seu primeiro cadastro.` : `Enviamos o comprovante para ${emailEnviado}.`)
         : 'Guarde este código: é com ele que você concorre.';

@@ -37,7 +37,10 @@ const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // (APP_NOME, "Central de Gestão") aparece só para a equipe.
 const MARCA = process.env.MARCA_NOME || 'Importadora Volkswagen';
 // Instagram da importadora, divulgado na tela do código e no comprovante (opcional).
-const INSTAGRAM_URL = /^https:\/\/(www\.)?instagram\.com\/[\w.]+\/?$/i.test(process.env.INSTAGRAM_URL || '') ? process.env.INSTAGRAM_URL : '';
+const INSTAGRAM_URL = (() => {
+  const url = process.env.INSTAGRAM_URL ?? 'https://www.instagram.com/importadoravolkswagen/';
+  return /^https:\/\/(www\.)?instagram\.com\/[\w.]+\/?$/i.test(url) ? url : '';
+})();
 const INSTAGRAM_ARROBA = INSTAGRAM_URL ? '@' + INSTAGRAM_URL.replace(/\/$/, '').split('/').pop() : '';
 const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
 const CONTATO_PRIVACIDADE = process.env.CONTATO_PRIVACIDADE || '';
@@ -586,18 +589,16 @@ ${rodape ? `<p style="margin:20px 0 0;font-size:12px;color:#64748b">${escHtml(ro
 
 // Comprovante de participação enviado a quem se cadastra: com a marca da importadora, sem o nome
 // do sistema interno.
-function montarComprovante({ nome, cod, quando }) {
+function montarComprovante({ nome, cod }) {
   const primeiro = nome.split(' ')[0];
   const contato = 'Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail informados no cadastro.';
-  const umCadastro = 'Seu cadastro vale para todos os nossos eventos. Se vier a outro, é só preencher o formulário de novo pelo QR Code para registrar sua presença: o código continua o mesmo.';
   const privacidade = PUBLIC_URL ? ` Saiba como usamos seus dados: ${PUBLIC_URL}/privacidade` : '';
   const texto = [
     `${MARCA} · Comprovante de participação`, '',
     `${primeiro}, você está concorrendo a brindes exclusivos!`, '',
     `Seu código de participação: ${cod}`,
-    `Participante: ${nome}`,
-    `Cadastro feito em: ${quando}`, '',
-    contato, umCadastro,
+    `Participante: ${nome}`, '',
+    contato,
     ...(INSTAGRAM_URL ? ['', `Siga a ${MARCA} no Instagram e acompanhe as novidades: ${INSTAGRAM_ARROBA} ${INSTAGRAM_URL}`] : []), '',
     `Equipe ${MARCA}`, '',
     `Você recebeu este e-mail porque se cadastrou para concorrer a brindes da ${MARCA}.${privacidade}`,
@@ -619,9 +620,8 @@ ${logo}<div style="font-size:18px;font-weight:bold;letter-spacing:.02em">${escHt
 <tr><td style="padding:20px 24px 4px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0">
 <tr><td style="padding:10px 0;color:#64748b">Participante</td><td style="padding:10px 0;text-align:right;font-weight:bold">${escHtml(nome)}</td></tr>
-<tr><td style="padding:10px 0;color:#64748b;border-top:1px solid #f1f5f9">Cadastro feito em</td><td style="padding:10px 0;text-align:right;border-top:1px solid #f1f5f9">${escHtml(quando)}</td></tr>
 </table></td></tr>
-<tr><td style="padding:18px 24px 6px">${p(contato)}${p(umCadastro)}</td></tr>
+<tr><td style="padding:18px 24px 6px">${p(contato)}</td></tr>
 ${INSTAGRAM_URL ? `<tr><td style="padding:6px 24px 26px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;border-radius:12px"><tr><td align="center" style="padding:20px 18px">
 <div style="font-size:16px;font-weight:bold;color:#011250">Siga a ${escHtml(MARCA)} no Instagram</div>
@@ -737,9 +737,8 @@ function enfileirarEmail(para, assunto, conteudo) {
 // que deixaram ligada a opção "Receber e-mail a cada novo cadastro".
 function notificarCadastro(p) {
   const cod = codigo(p.id);
-  const quando = new Date().toLocaleString('pt-BR', { timeZone: TIMEZONE, dateStyle: 'short', timeStyle: 'short' });
   enfileirarEmail(p.email, `Você está concorrendo a brindes! Seu código é ${cod} · ${MARCA}`,
-    montarComprovante({ nome: p.nome, cod, quando }));
+    montarComprovante({ nome: p.nome, cod }));
   const mascara = `***.${p.cpf.slice(3, 6)}.${p.cpf.slice(6, 9)}-**`;
   for (const { email } of q.adminsNotificados.all()) {
     enfileirarEmail(email, `Novo cadastro ${cod} — ${p.nome}`, {

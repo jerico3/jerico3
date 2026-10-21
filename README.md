@@ -59,7 +59,7 @@ autenticador no primeiro login; recarrega ao salvar).
 | `SMTP_FROM`      | `SMTP_USER`         | Remetente, se for diferente do usuário.              |
 | `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
 | `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails da equipe. |
-| `INSTAGRAM_URL`  | _(vazio)_           | Instagram da importadora (ex.: `https://www.instagram.com/perfil`), divulgado na tela do código e no comprovante. |
+| `INSTAGRAM_URL`  | `https://www.instagram.com/importadoravolkswagen/` | Instagram divulgado na tela do código e no comprovante (vazio = esconde). |
 | `MARCA_NOME`     | `Importadora Volkswagen` | Marca mostrada ao participante (tela do código e comprovante por e-mail). |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
 | `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
