@@ -36,6 +36,9 @@ const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // Marca mostrada ao participante (tela do código e e-mail de comprovante). O nome do sistema
 // (APP_NOME, "Central de Gestão") aparece só para a equipe.
 const MARCA = process.env.MARCA_NOME || 'Importadora Volkswagen';
+// Instagram da importadora, divulgado na tela do código e no comprovante (opcional).
+const INSTAGRAM_URL = /^https:\/\/(www\.)?instagram\.com\/[\w.]+\/?$/i.test(process.env.INSTAGRAM_URL || '') ? process.env.INSTAGRAM_URL : '';
+const INSTAGRAM_ARROBA = INSTAGRAM_URL ? '@' + INSTAGRAM_URL.replace(/\/$/, '').split('/').pop() : '';
 const CONTROLADOR_CNPJ = process.env.CONTROLADOR_CNPJ || '';
 const CONTATO_PRIVACIDADE = process.env.CONTATO_PRIVACIDADE || '';
 // Cadastros com mais de N dias são apagados automaticamente (0 = não apaga).
@@ -86,6 +89,16 @@ for (const [col, tipo] of [['aceite_em', 'TEXT'], ['termos_versao', 'TEXT'], ['a
 }
 db.exec(`
   CREATE INDEX IF NOT EXISTS participantes_data ON participantes (data_cadastro);
+  CREATE INDEX IF NOT EXISTS participantes_cpf ON participantes (cpf);
+  -- Um cadastro por pessoa (CPF) vale para todos os eventos; cada evento em que ela aparece (e envia
+  -- o formulário de novo) vira uma presença.
+  CREATE TABLE IF NOT EXISTS presencas (
+    participante_id INTEGER NOT NULL REFERENCES participantes(id),
+    dia             TEXT NOT NULL,
+    criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (participante_id, dia)
+  );
+  CREATE INDEX IF NOT EXISTS presencas_dia ON presencas (dia);
   CREATE TABLE IF NOT EXISTS sorteios (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     participante_id INTEGER NOT NULL REFERENCES participantes(id),
@@ -176,35 +189,48 @@ db.exec(`
   );
 `);
 
+// Cadastros de antes das presenças: o dia do cadastro conta como presença naquele evento.
+const PRESENCAS_DO_CADASTRO = `INSERT OR IGNORE INTO presencas (participante_id, dia, criado_em)
+  SELECT id, data_cadastro, criado_em FROM participantes`;
+db.exec(PRESENCAS_DO_CADASTRO);
+
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
+// Dias de presença de cada cadastro, como lista "2026-10-22,2026-10-23".
+const COM_PRESENCAS = `${PARTICIPANTE_COLS},
+  (SELECT GROUP_CONCAT(dia, ',') FROM (SELECT dia FROM presencas WHERE participante_id = participantes.id ORDER BY dia)) AS presencas`;
 const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em, confirmado, totp_ativo, notif_cadastros';
 
 const q = {
   insert: db.prepare(`
     INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro, aceite_em, termos_versao, aceita_marketing)
     VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)`),
-  byCpfDia: db.prepare('SELECT id, nome, telefone FROM participantes WHERE cpf = ? AND data_cadastro = ?'),
-  expiredIds: db.prepare('SELECT id FROM participantes WHERE data_cadastro < ?'),
-  all: db.prepare(`SELECT ${PARTICIPANTE_COLS} FROM participantes ORDER BY id`),
-  byDate: db.prepare(`SELECT ${PARTICIPANTE_COLS} FROM participantes WHERE data_cadastro = ? ORDER BY id`),
-  datas: db.prepare(`
-    SELECT data_cadastro AS data, COUNT(*) AS total FROM participantes
-    GROUP BY data_cadastro ORDER BY data_cadastro DESC`),
+  byCpf: db.prepare('SELECT id, nome, telefone, email FROM participantes WHERE cpf = ? ORDER BY id LIMIT 1'),
+  insertPresenca: db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia) VALUES (?, ?)'),
+  deletePresencasOf: db.prepare('DELETE FROM presencas WHERE participante_id = ?'),
+  // Retenção: conta a partir da última presença.
+  expiredIds: db.prepare(`
+    SELECT p.id FROM participantes p
+    WHERE COALESCE((SELECT MAX(dia) FROM presencas WHERE participante_id = p.id), p.data_cadastro) < ?`),
+  all: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes ORDER BY id`),
+  byDate: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes
+    WHERE id IN (SELECT participante_id FROM presencas WHERE dia = ?) ORDER BY id`),
+  datas: db.prepare('SELECT dia AS data, COUNT(*) AS total FROM presencas GROUP BY dia ORDER BY dia DESC'),
   eligible: db.prepare(`
     SELECT id FROM participantes
     WHERE id NOT IN (SELECT participante_id FROM sorteios)
     ORDER BY id`),
   eligibleByDate: db.prepare(`
     SELECT id FROM participantes
-    WHERE data_cadastro = ? AND id NOT IN (SELECT participante_id FROM sorteios)
+    WHERE id IN (SELECT participante_id FROM presencas WHERE dia = ?) AND id NOT IN (SELECT participante_id FROM sorteios)
     ORDER BY id`),
-  byId: db.prepare(`SELECT ${PARTICIPANTE_COLS} FROM participantes WHERE id = ?`),
+  byId: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes WHERE id = ?`),
   update: db.prepare('UPDATE participantes SET nome = ?, cpf = ?, telefone = ?, email = ? WHERE id = ?'),
   delete: db.prepare('DELETE FROM participantes WHERE id = ?'),
   deleteDrawsOf: db.prepare('DELETE FROM sorteios WHERE participante_id = ?'),
   insertDraw: db.prepare('INSERT INTO sorteios (participante_id) VALUES (?)'),
   draws: db.prepare(`
-    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email, p.data_cadastro
+    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email, p.data_cadastro,
+      (SELECT GROUP_CONCAT(dia, ',') FROM presencas WHERE participante_id = p.id) AS presencas
     FROM sorteios s JOIN participantes p ON p.id = s.participante_id
     ORDER BY s.id`),
   clearDraws: db.prepare('DELETE FROM sorteios'),
@@ -560,25 +586,24 @@ ${rodape ? `<p style="margin:20px 0 0;font-size:12px;color:#64748b">${escHtml(ro
 
 // Comprovante de participação enviado a quem se cadastra: com a marca da importadora, sem o nome
 // do sistema interno.
-function montarComprovante({ nome, cod, dia, quando }) {
+function montarComprovante({ nome, cod, quando }) {
   const primeiro = nome.split(' ')[0];
-  const passos = [
-    `O sorteio acontece durante o evento de ${diaBr(dia)}. Só concorrem os cadastros feitos nesse dia.`,
-    'Fique atento: os códigos sorteados são anunciados no local.',
-    'Se o seu código for chamado, apresente este comprovante à nossa equipe. Vamos conferir seu nome e CPF para entregar o brinde.',
-  ];
+  const contato = 'Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail informados no cadastro.';
+  const umCadastro = 'Seu cadastro vale para todos os nossos eventos. Se vier a outro, é só preencher o formulário de novo pelo QR Code para registrar sua presença: o código continua o mesmo.';
   const privacidade = PUBLIC_URL ? ` Saiba como usamos seus dados: ${PUBLIC_URL}/privacidade` : '';
   const texto = [
     `${MARCA} · Comprovante de participação`, '',
     `${primeiro}, você está concorrendo a brindes exclusivos!`, '',
     `Seu código de participação: ${cod}`,
     `Participante: ${nome}`,
-    `Evento: ${diaBr(dia)} · cadastro feito em ${quando}`, '',
-    'Como funciona:', ...passos.map((p, i) => `${i + 1}. ${p}`), '',
-    'Boa sorte!', `Equipe ${MARCA}`, '',
-    `Você recebeu este e-mail porque se cadastrou no sorteio de brindes da ${MARCA}.${privacidade}`,
+    `Cadastro feito em: ${quando}`, '',
+    contato, umCadastro,
+    ...(INSTAGRAM_URL ? ['', `Siga a ${MARCA} no Instagram e acompanhe as novidades: ${INSTAGRAM_ARROBA} ${INSTAGRAM_URL}`] : []), '',
+    `Equipe ${MARCA}`, '',
+    `Você recebeu este e-mail porque se cadastrou para concorrer a brindes da ${MARCA}.${privacidade}`,
   ].join('\n');
   const logo = PUBLIC_URL ? `<img src="${escHtml(PUBLIC_URL)}/qr-logo.png" width="56" height="56" alt="" style="display:block;margin:0 auto 10px;border-radius:50%">` : '';
+  const p = (t) => `<p style="margin:0 0 10px;font-size:14px;line-height:1.55;color:#334155">${escHtml(t)}</p>`;
   const html = `<!doctype html><html><body style="margin:0;background:#eef1f7;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;overflow:hidden">
@@ -587,27 +612,25 @@ ${logo}<div style="font-size:18px;font-weight:bold;letter-spacing:.02em">${escHt
 <div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.12em;margin-top:4px">Comprovante de participação</div>
 </td></tr>
 <tr><td style="padding:28px 24px 8px;text-align:center">
-<h1 style="margin:0 0 6px;font-size:22px;color:#011250">${escHtml(primeiro)}, você está concorrendo!</h1>
-<p style="margin:0 0 20px;font-size:15px;color:#475569">Seu cadastro foi confirmado e você já participa do sorteio de brindes exclusivos.</p>
-<div style="font-size:12px;color:#64748b;text-transform:uppercase;letter-spacing:.12em;font-weight:bold">Seu código</div>
-<div style="margin:8px auto 0;display:inline-block;background:#011250;color:#fff;font-size:34px;font-weight:bold;letter-spacing:.06em;padding:14px 28px;border-radius:10px">${escHtml(cod)}</div>
+<h1 style="margin:0 0 6px;font-size:22px;color:#011250">${escHtml(primeiro)}, você está concorrendo a brindes exclusivos!</h1>
+<p style="margin:0 0 20px;font-size:15px;color:#475569">Seu cadastro foi confirmado. Este é o seu código de participação:</p>
+<div style="margin:0 auto;display:inline-block;background:#011250;color:#fff;font-size:34px;font-weight:bold;letter-spacing:.06em;padding:14px 28px;border-radius:10px">${escHtml(cod)}</div>
 </td></tr>
 <tr><td style="padding:20px 24px 4px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0">
 <tr><td style="padding:10px 0;color:#64748b">Participante</td><td style="padding:10px 0;text-align:right;font-weight:bold">${escHtml(nome)}</td></tr>
-<tr><td style="padding:10px 0;color:#64748b;border-top:1px solid #f1f5f9">Evento</td><td style="padding:10px 0;text-align:right;font-weight:bold;border-top:1px solid #f1f5f9">${escHtml(diaBr(dia))}</td></tr>
 <tr><td style="padding:10px 0;color:#64748b;border-top:1px solid #f1f5f9">Cadastro feito em</td><td style="padding:10px 0;text-align:right;border-top:1px solid #f1f5f9">${escHtml(quando)}</td></tr>
 </table></td></tr>
-<tr><td style="padding:18px 24px 4px">
-<div style="font-size:15px;font-weight:bold;color:#011250;margin-bottom:8px">Como funciona</div>
-${passos.map((p, i) => `<p style="margin:0 0 10px;font-size:14px;line-height:1.5"><b style="color:#0a1a80">${i + 1}.</b> ${escHtml(p)}</p>`).join('')}
-</td></tr>
-<tr><td align="center" style="padding:14px 24px 28px">
-<div style="font-size:20px;font-weight:bold;color:#011250">Boa sorte! 🍀</div>
-<div style="font-size:13px;color:#64748b;margin-top:4px">Equipe ${escHtml(MARCA)}</div>
-</td></tr>
+<tr><td style="padding:18px 24px 6px">${p(contato)}${p(umCadastro)}</td></tr>
+${INSTAGRAM_URL ? `<tr><td style="padding:6px 24px 26px">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;border-radius:12px"><tr><td align="center" style="padding:20px 18px">
+<div style="font-size:16px;font-weight:bold;color:#011250">Siga a ${escHtml(MARCA)} no Instagram</div>
+<div style="font-size:13px;color:#64748b;margin:4px 0 14px">Lançamentos, ofertas e novidades em primeira mão.</div>
+<a href="${escHtml(INSTAGRAM_URL)}" style="display:inline-block;background:#0a1a80;color:#fff;text-decoration:none;font-weight:bold;font-size:14px;padding:12px 22px;border-radius:8px">Seguir ${escHtml(INSTAGRAM_ARROBA)}</a>
+</td></tr></table></td></tr>` : '<tr><td style="padding:0 0 14px"></td></tr>'}
+<tr><td align="center" style="padding:0 24px 24px;font-size:13px;color:#64748b">Equipe ${escHtml(MARCA)}</td></tr>
 <tr><td style="background:#f8fafc;padding:14px 24px;font-size:11px;color:#94a3b8;line-height:1.5">
-Você recebeu este e-mail porque se cadastrou no sorteio de brindes da ${escHtml(MARCA)}. Este é um e-mail automático, não é preciso responder.${PUBLIC_URL ? ` <a href="${escHtml(PUBLIC_URL)}/privacidade" style="color:#64748b">Como usamos seus dados</a>.` : ''}
+Você recebeu este e-mail porque se cadastrou para concorrer a brindes da ${escHtml(MARCA)}. Este é um e-mail automático, não é preciso responder.${PUBLIC_URL ? ` <a href="${escHtml(PUBLIC_URL)}/privacidade" style="color:#64748b">Como usamos seus dados</a>.` : ''}
 </td></tr></table></td></tr></table></body></html>`;
   return { texto, html };
 }
@@ -715,8 +738,8 @@ function enfileirarEmail(para, assunto, conteudo) {
 function notificarCadastro(p) {
   const cod = codigo(p.id);
   const quando = new Date().toLocaleString('pt-BR', { timeZone: TIMEZONE, dateStyle: 'short', timeStyle: 'short' });
-  enfileirarEmail(p.email, `Você está concorrendo! Seu código é ${cod} · ${MARCA}`,
-    montarComprovante({ nome: p.nome, cod, dia: p.dia, quando }));
+  enfileirarEmail(p.email, `Você está concorrendo a brindes! Seu código é ${cod} · ${MARCA}`,
+    montarComprovante({ nome: p.nome, cod, quando }));
   const mascara = `***.${p.cpf.slice(3, 6)}.${p.cpf.slice(6, 9)}-**`;
   for (const { email } of q.adminsNotificados.all()) {
     enfileirarEmail(email, `Novo cadastro ${cod} — ${p.nome}`, {
@@ -724,7 +747,7 @@ function notificarCadastro(p) {
       paragrafos: [
         `Nome: ${p.nome}`,
         `CPF: ${mascara} · Telefone: ${p.telefone} · E-mail: ${p.email}`,
-        `Evento de ${diaBr(p.dia)} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
+        `Cadastro em ${diaBr(p.dia)} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
       ],
       botao: 'Abrir o painel',
       link: PUBLIC_URL ? `${PUBLIC_URL}/admin` : null,
@@ -764,7 +787,7 @@ function listarBackups() {
 // Tabelas restauradas (sessões, tickets de login e links de e-mail não voltam: todos entram de novo).
 // A auditoria não é substituída: o histórico do backup é somado ao atual, para não perder o registro
 // do que aconteceu entre o backup e a restauração.
-const TABELAS_RESTAURAR = ['usuarios', 'participantes', 'sorteios', 'links', 'acessos'];
+const TABELAS_RESTAURAR = ['usuarios', 'participantes', 'presencas', 'sorteios', 'links', 'acessos'];
 
 // Confere se o arquivo é um banco deste sistema e conta o que ele tem.
 function inspecionarBackup(arquivo) {
@@ -814,6 +837,8 @@ function restaurarBackup(arquivo) {
               SELECT 1 FROM main.auditoria a WHERE a.criado_em = o.criado_em AND a.acao = o.acao
                 AND a.detalhe IS o.detalhe AND a.usuario_nome IS o.usuario_nome)`);
         }
+        // Backup de antes das presenças: recria a partir do dia de cadastro.
+        db.exec(PRESENCAS_DO_CADASTRO);
         // Mantém a numeração dos códigos (VW-0001…) continuando de onde o backup parou.
         db.exec('DELETE FROM main.sqlite_sequence');
         if (db.prepare("SELECT 1 FROM origem.sqlite_master WHERE name = 'sqlite_sequence'").get()) {
@@ -827,6 +852,7 @@ function restaurarBackup(arquivo) {
   } finally {
     db.exec('PRAGMA foreign_keys = ON');
   }
+  unificarDuplicados();
   return { ...resumo, seguranca };
 }
 
@@ -852,6 +878,7 @@ rota('GET', '/api/config', (req, res) => json(res, 200, {
   evento: EVENT_NAME,
   app: APP_NOME,
   marca: MARCA,
+  instagram: INSTAGRAM_URL ? { url: INSTAGRAM_URL, arroba: INSTAGRAM_ARROBA } : null,
   prefixo: CODE_PREFIX,
   hoje: hoje(),
   publicUrl: PUBLIC_URL,
@@ -886,19 +913,25 @@ rota('POST', '/api/cadastro', async (req, res) => {
   const data = normalize(body);
   if (data.errors.length) return json(res, 422, { erro: data.errors.join(' ') });
 
-  // Um cadastro por CPF por dia: quem volta em outro evento (outro dia) ganha um código novo.
+  // Um cadastro por CPF, válido em todos os eventos. Quem volta em outro evento envia o formulário de
+  // novo e ganha a presença daquele dia, com o mesmo código.
   const dia = hoje();
-  const existing = q.byCpfDia.get(data.cpf, dia);
+  const existing = q.byCpf.get(data.cpf);
   if (existing) {
     // Só devolve o código se o telefone conferir: sem isso, qualquer um que digitasse o CPF de
     // outra pessoa descobriria o nome e o código dela.
     if (existing.telefone !== data.telefone) {
-      return json(res, 409, { erro: 'Este CPF já foi cadastrado hoje. Se foi você, informe o mesmo telefone usado no cadastro.' });
+      return json(res, 409, { erro: 'Este CPF já está cadastrado. Se foi você, informe o mesmo telefone usado no cadastro.' });
     }
-    return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true, ...avisoEmail(existing.email) });
+    const novaPresenca = q.insertPresenca.run(existing.id, dia).changes > 0;
+    return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true, novaPresenca, ...avisoEmail(existing.email) });
   }
-  const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
-  const id = Number(r.lastInsertRowid);
+  const id = transacao(() => {
+    const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
+    const novo = Number(r.lastInsertRowid);
+    q.insertPresenca.run(novo, dia);
+    return novo;
+  });
   notificarCadastro({ id, ...data, dia });
   return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false, ...avisoEmail(data.email) });
 });
@@ -1102,9 +1135,9 @@ rota('GET', '/api/admin/participantes.csv', (req, res) => {
   if (!u) return;
   const dia = dataParam(new URL(req.url, 'http://localhost').searchParams.get('data'));
   const rows = dia ? q.byDate.all(dia) : q.all.all();
-  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'criado_em_utc', 'aceita_ofertas', 'aceite_em_utc', 'versao_aviso'].join(',')];
+  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'presencas', 'criado_em_utc', 'aceita_ofertas', 'aceite_em_utc', 'versao_aviso'].join(',')];
   for (const r of rows) {
-    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, r.criado_em,
+    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, (r.presencas || '').split(',').filter(Boolean).map(diaBr).join(' e '), r.criado_em,
       r.aceita_marketing ? 'sim' : 'nao', r.aceite_em, r.termos_versao].map(csvCell).join(','));
   }
   registrar(u, 'cadastros.exportados', `${rows.length} cadastros · ${dia ? 'dia ' + diaBr(dia) : 'todas as datas'}`);
@@ -1144,9 +1177,10 @@ rota('DELETE', '/api/admin/participantes/:id', (req, res, { id }) => {
   if (!p) return json(res, 404, { erro: 'Cadastro não encontrado.' });
   transacao(() => {
     q.deleteDrawsOf.run(id);
+    q.deletePresencasOf.run(id);
     q.delete.run(id);
   });
-  registrar(u, 'cadastro.excluido', `${codigo(id)} · ${p.nome} · CPF ${p.cpf} · dia ${diaBr(p.data_cadastro)}`);
+  registrar(u, 'cadastro.excluido', `${codigo(id)} · ${p.nome} · CPF ${p.cpf} · cadastro de ${diaBr(p.data_cadastro)}`);
   json(res, 200, { ok: true });
 });
 
@@ -1609,6 +1643,27 @@ const server = http.createServer(async (req, res) => {
 });
 
 // Apaga os cadastros (e seus sorteios) mais antigos que RETENCAO_DIAS, conforme o Aviso de Privacidade.
+// Versões anteriores criavam um cadastro por CPF por dia. Junta esses cadastros no mais antigo (que
+// mantém o código), levando as presenças e os sorteios, para cada pessoa ter um cadastro só.
+function unificarDuplicados() {
+  const grupos = db.prepare('SELECT cpf, MIN(id) AS fica FROM participantes GROUP BY cpf HAVING COUNT(*) > 1').all();
+  if (!grupos.length) return;
+  const juntados = [];
+  transacao(() => {
+    for (const { cpf, fica } of grupos) {
+      for (const { id } of db.prepare('SELECT id FROM participantes WHERE cpf = ? AND id <> ?').all(cpf, fica)) {
+        db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia, criado_em) SELECT ?, dia, criado_em FROM presencas WHERE participante_id = ?').run(fica, id);
+        db.prepare('UPDATE sorteios SET participante_id = ? WHERE participante_id = ?').run(fica, id);
+        q.deletePresencasOf.run(id);
+        q.delete.run(id);
+        juntados.push(`${codigo(id)} → ${codigo(fica)}`);
+      }
+    }
+  });
+  registrar(null, 'cadastros.unificados', `Cadastros do mesmo CPF juntados: ${juntados.join(', ')}`);
+  console.log(`Cadastros duplicados juntados: ${juntados.join(', ')}`);
+}
+
 function aplicarRetencao() {
   if (!RETENCAO_DIAS) return;
   const limite = hoje(new Date(Date.now() - RETENCAO_DIAS * 86400000));
@@ -1617,12 +1672,14 @@ function aplicarRetencao() {
   transacao(() => {
     for (const id of ids) {
       q.deleteDrawsOf.run(id);
+      q.deletePresencasOf.run(id);
       q.delete.run(id);
     }
   });
   registrar(null, 'retencao', `${ids.length} cadastros anteriores a ${diaBr(limite)} apagados (retenção de ${RETENCAO_DIAS} dias)`);
   console.log(`Retenção: ${ids.length} cadastros antigos apagados.`);
 }
+unificarDuplicados();
 aplicarRetencao();
 setInterval(aplicarRetencao, 6 * 60 * 60 * 1000).unref();
 backupAutomatico();

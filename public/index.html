@@ -153,7 +153,8 @@
     .passos li { display: flex; gap: 10px; }
     .passos li + li { margin-top: 10px; }
     .passos b { flex: none; width: 22px; height: 22px; border-radius: 50%; background: #fff; color: var(--navy); display: grid; place-items: center; font-size: .78rem; }
-    .boa-sorte { margin: 22px 0 0; font-size: 1.3rem; font-weight: 800; }
+    .insta { margin-top: 22px; display: inline-flex; align-items: center; gap: 10px; background: #fff; color: var(--navy); text-decoration: none; font-weight: 700; padding: 13px 22px; border-radius: 12px; }
+    .insta small { display: block; font-weight: 500; font-size: .75rem; color: #64748b; }
     .marca { margin-top: 26px; font-size: .75rem; letter-spacing: .12em; text-transform: uppercase; opacity: .6; }
   </style>
 </head>
@@ -205,16 +206,19 @@
       <div class="ok" aria-hidden="true">
         <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#011250" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
       </div>
-      <p class="saudacao" id="saudacao">Você está concorrendo!</p>
+      <p class="saudacao" id="saudacao">Você está concorrendo a brindes!</p>
       <p class="aviso" id="sub" style="margin-top:0">Seu cadastro foi confirmado.</p>
       <h2>SEU CÓDIGO DE PARTICIPAÇÃO</h2>
       <div class="codigo" id="codigo">VW-0000</div>
       <p class="aviso" id="aviso"></p>
       <ol class="passos">
-        <li><b>1</b><span>O sorteio acontece durante o evento de hoje. Fique atento ao anúncio dos códigos.</span></li>
-        <li><b>2</b><span>Se o seu código for chamado, apresente este comprovante à nossa equipe para retirar o brinde.</span></li>
+        <li><b>1</b><span>Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail do cadastro.</span></li>
+        <li><b>2</b><span>Seu cadastro vale para todos os nossos eventos. Se vier a outro, preencha o formulário de novo para registrar sua presença: o código continua o mesmo.</span></li>
       </ol>
-      <p class="boa-sorte">Boa sorte! 🍀</p>
+      <a class="insta" id="insta" href="#" target="_blank" rel="noopener" hidden>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
+        <span>Siga a <span class="insta-marca">Importadora</span> no Instagram<small id="insta-arroba"></small></span>
+      </a>
       <p class="marca"><span id="marca-comprovante">Importadora Volkswagen</span> · Comprovante de participação</p>
     </div>
   </main>
@@ -235,15 +239,19 @@
 
     const formatCodigo = (id) => prefixo + String(id).padStart(4, '0');
 
-    function mostrarCodigo({ id, nome, jaCadastrado, emailEnviado }) {
+    function mostrarCodigo({ id, nome, jaCadastrado, novaPresenca, emailEnviado }) {
       const primeiroNome = (nome || '').split(' ')[0];
       $('codigo').textContent = formatCodigo(id);
-      $('saudacao').textContent = primeiroNome ? `${primeiroNome}, você está concorrendo!` : 'Você está concorrendo!';
-      $('sub').textContent = jaCadastrado
-        ? 'Você já se cadastrou hoje. Seu código continua o mesmo.'
-        : 'Seu cadastro foi confirmado e você já participa do sorteio de brindes exclusivos.';
+      $('saudacao').textContent = jaCadastrado && novaPresenca
+        ? `Que bom te ver de novo${primeiroNome ? ', ' + primeiroNome : ''}!`
+        : `${primeiroNome ? primeiroNome + ', você' : 'Você'} está concorrendo a brindes!`;
+      $('sub').textContent = !jaCadastrado
+        ? 'Seu cadastro foi confirmado e você já está concorrendo a brindes exclusivos.'
+        : novaPresenca
+          ? 'Você já tinha cadastro. Registramos sua presença neste evento e seu código continua o mesmo.'
+          : 'Você já está cadastrado e sua presença de hoje já foi registrada. Seu código continua o mesmo.';
       $('aviso').textContent = emailEnviado
-        ? `Enviamos o comprovante para ${emailEnviado}.`
+        ? (jaCadastrado ? `O comprovante foi enviado para ${emailEnviado} no seu primeiro cadastro.` : `Enviamos o comprovante para ${emailEnviado}.`)
         : 'Guarde este código: é com ele que você concorre.';
       $('tela-form').hidden = true;
       $('tela-codigo').hidden = false;
@@ -318,9 +326,9 @@
 
     function restaurar() {
       // Reabrir a página (ou escanear o QR de novo) no mesmo dia mostra o código já recebido.
-      // Em outro dia (outro evento), a pessoa precisa se cadastrar de novo.
+      // Em outro dia (outro evento), a pessoa envia o formulário de novo para registrar a presença.
       const salvo = storage('get');
-      if (salvo && salvo.id && salvo.data_cadastro === hoje) mostrarCodigo({ ...salvo, jaCadastrado: true });
+      if (salvo && salvo.id && salvo.data_cadastro === hoje) mostrarCodigo({ ...salvo, jaCadastrado: true, novaPresenca: false });
       else if (salvo) storage('del');
     }
 
@@ -329,7 +337,15 @@
       if (cfg.hoje) hoje = cfg.hoje;
       if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
       if (cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.privacidade.controlador;
-      if (cfg.marca) $('marca-comprovante').textContent = cfg.marca;
+      if (cfg.marca) {
+        $('marca-comprovante').textContent = cfg.marca;
+        document.querySelector('.insta-marca').textContent = cfg.marca;
+      }
+      if (cfg.instagram) {
+        $('insta').href = cfg.instagram.url;
+        $('insta-arroba').textContent = cfg.instagram.arroba;
+        $('insta').hidden = false;
+      }
     }).catch(() => {}).finally(restaurar);
   </script>
 </body>

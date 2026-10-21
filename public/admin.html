@@ -192,15 +192,15 @@
 
   <main>
     <div class="barra-dia" id="barra-dia">
-      <label for="dia">Dia do evento</label>
+      <label for="dia">Evento</label>
       <select id="dia"></select>
-      <span class="dica">O sorteio, a lista e o CSV consideram só os cadastros feitos nesse dia.</span>
+      <span class="dica">Cada pessoa tem um único cadastro; escolha um evento para ver (e sortear) só quem esteve nele.</span>
     </div>
 
     <!-- Sorteio -->
     <section data-painel="sorteio">
       <div class="stats">
-        <div class="stat"><span>Cadastros no dia</span><strong id="st-total">–</strong></div>
+        <div class="stat"><span id="st-total-rotulo">Cadastros</span><strong id="st-total">–</strong></div>
         <div class="stat"><span>Concorrendo</span><strong id="st-elegiveis">–</strong></div>
         <div class="stat"><span>Já sorteados</span><strong id="st-sorteados">–</strong></div>
       </div>
@@ -217,7 +217,7 @@
         </div>
         <div class="card">
           <div class="cab">
-            <h2>Sorteados no dia</h2>
+            <h2>Sorteados</h2>
             <button class="btn perigo pequeno so-admin" id="reiniciar" hidden title="Apaga o histórico de sorteados de todos os dias">Reiniciar histórico</button>
           </div>
           <ol class="historico" id="historico"></ol>
@@ -238,7 +238,7 @@
         </div>
         <div class="tabela">
           <table>
-            <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Cadastrado em</th><th></th></tr></thead>
+            <thead><tr><th>Código</th><th>Nome</th><th>CPF</th><th>Telefone</th><th>E-mail</th><th>Presença</th><th></th></tr></thead>
             <tbody id="lista"></tbody>
           </table>
         </div>
@@ -511,7 +511,8 @@
     const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';
     const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     const fmtDia = (d) => d.split('-').reverse().join('/');
-    const doDia = (p) => !diaEscolhido || p.data_cadastro === diaEscolhido;
+    const presencas = (p) => (p.presencas || p.data_cadastro || '').split(',').filter(Boolean);
+    const doDia = (p) => !diaEscolhido || presencas(p).includes(diaEscolhido);
     const ehAdmin = () => eu && eu.papel === 'admin';
 
     function el(tag, text, cls) {
@@ -594,20 +595,17 @@
 
     async function carregar() {
       estado = await api('GET', '/api/admin/participantes');
-      if (diaEscolhido === null) {
-        // Começa no dia de hoje; se ainda não houver cadastros hoje, no dia mais recente.
-        const temHoje = estado.datas.some((d) => d.data === estado.hoje);
-        diaEscolhido = temHoje ? estado.hoje : (estado.datas[0]?.data || estado.hoje);
-      }
+      // Começa mostrando todos os eventos: o cadastro é único e vale para todos.
+      if (diaEscolhido === null) diaEscolhido = '';
       renderDias();
       renderTudo();
     }
 
     function renderDias() {
-      const rotulo = (data, total) => `${fmtDia(data)}${data === estado.hoje ? ' (hoje)' : ''} — ${total} cadastro${total === 1 ? '' : 's'}`;
+      const rotulo = (data, total) => `Evento de ${fmtDia(data)}${data === estado.hoje ? ' (hoje)' : ''} — ${total} presente${total === 1 ? '' : 's'}`;
       const opcoes = estado.datas.map((d) => [d.data, rotulo(d.data, d.total)]);
       if (diaEscolhido && !estado.datas.some((d) => d.data === diaEscolhido)) opcoes.unshift([diaEscolhido, rotulo(diaEscolhido, 0)]);
-      opcoes.push(['', 'Todas as datas']);
+      opcoes.unshift(['', `Todos os eventos — ${estado.participantes.length} cadastro${estado.participantes.length === 1 ? '' : 's'}`]);
       $('dia').replaceChildren(...opcoes.map(([v, t]) => { const o = el('option', t); o.value = v; return o; }));
       $('dia').value = diaEscolhido;
     }
@@ -618,12 +616,13 @@
       const sorteadosDia = estado.sorteios.filter(doDia);
       const elegiveis = doEvento.filter((p) => !sorteados.has(p.id)).length;
       $('st-total').textContent = doEvento.length;
+      $('st-total-rotulo').textContent = diaEscolhido ? 'Presentes no evento' : 'Cadastros';
       $('st-elegiveis').textContent = elegiveis;
       $('st-sorteados').textContent = sorteadosDia.length;
       $('sortear').disabled = elegiveis === 0;
-      $('sortear').textContent = diaEscolhido ? `Sortear entre os cadastros de ${fmtDia(diaEscolhido)}` : 'Sortear entre todos os cadastros';
+      $('sortear').textContent = diaEscolhido ? `Sortear entre os presentes em ${fmtDia(diaEscolhido)}` : 'Sortear entre todos os cadastros';
       $('csv').href = '/api/admin/participantes.csv' + (diaEscolhido ? `?data=${diaEscolhido}` : '');
-      $('titulo-lista').textContent = diaEscolhido ? `Cadastros de ${fmtDia(diaEscolhido)}` : 'Todos os cadastros';
+      $('titulo-lista').textContent = diaEscolhido ? `Presentes no evento de ${fmtDia(diaEscolhido)}` : 'Todos os cadastros';
 
       $('historico').replaceChildren(...sorteadosDia.map((s) => {
         const li = el('li');
@@ -642,7 +641,7 @@
         || p.nome.toLowerCase().includes(termo)
         || (termoNum && (p.telefone.includes(termoNum) || p.cpf.includes(termoNum) || String(p.id) === termoNum.replace(/^0+/, ''))));
       const tbody = $('lista');
-      if (!lista.length) return linhaVazia(tbody, 7, termo ? 'Nenhum cadastro encontrado para essa busca.' : 'Nenhum cadastro neste dia.');
+      if (!lista.length) return linhaVazia(tbody, 7, termo ? 'Nenhum cadastro encontrado para essa busca.' : 'Ninguém neste evento.');
       // Mais recentes primeiro.
       tbody.replaceChildren(...lista.slice().reverse().map((p) => {
         const tr = el('tr');
@@ -653,7 +652,7 @@
         acoes.append(botao('Editar', '', () => editarCadastro(p)));
         if (ehAdmin()) acoes.append(botao('Excluir', 'perigo', () => excluirCadastro(p)));
         tr.append(el('td', fmtId(p.id), 'codigo'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
-          el('td', p.email || '—'), el('td', fmtData(p.criado_em)), acoes);
+          el('td', p.email || '—'), el('td', presencas(p).map((d) => fmtDia(d).slice(0, 5)).join(' · ')), acoes);
         return tr;
       }));
     }
@@ -668,7 +667,7 @@
       const sorteados = new Set(estado.sorteios.map((s) => s.id));
       const elegiveis = estado.participantes.filter(doDia).filter((p) => !sorteados.has(p.id));
       const r = await ShowSorteio.rodar({
-        subtitulo: diaEscolhido ? `Evento de ${fmtDia(diaEscolhido)} · ${elegiveis.length} concorrendo` : `Todas as datas · ${elegiveis.length} concorrendo`,
+        subtitulo: diaEscolhido ? `Evento de ${fmtDia(diaEscolhido)} · ${elegiveis.length} concorrendo` : `Todos os eventos · ${elegiveis.length} concorrendo`,
         codigos: elegiveis.map((p) => fmtId(p.id)),
         sortear: async () => {
           const { vencedor: v } = await api('POST', '/api/admin/sortear', { data: diaEscolhido || null });
@@ -714,7 +713,7 @@
       $('c-cpf').disabled = !ehAdmin();
       $('c-cpf-ajuda').hidden = ehAdmin();
       $('c-email').value = p.email || '';
-      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)} (evento de ${fmtDia(p.data_cadastro)}). `
+      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)}. Presença nos eventos de ${presencas(p).map(fmtDia).join(' e ')}. `
         + (p.aceite_em ? `Aceitou o Aviso de Privacidade (versão ${fmtDia(p.termos_versao || '')}) em ${fmtData(p.aceite_em)}. ` : '')
         + `Aceita ofertas: ${p.aceita_marketing ? 'sim' : 'não'}.`;
       d.showModal();
@@ -874,6 +873,7 @@
       'senha.recuperacao': 'Pediu nova senha por e-mail',
       'senha.redefinida': 'Criou nova senha pelo e-mail',
       'retencao': 'Limpeza automática (retenção)',
+      'cadastros.unificados': 'Juntou cadastros do mesmo CPF',
       'backup.criado': 'Fez backup',
       'backup.baixado': 'Baixou backup',
       'backup.restaurado': 'Restaurou backup',

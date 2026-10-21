@@ -59,6 +59,7 @@ autenticador no primeiro login; recarrega ao salvar).
 | `SMTP_FROM`      | `SMTP_USER`         | Remetente, se for diferente do usuário.              |
 | `SMTP_NOME`      | `EVENT_NAME`        | Nome do remetente.                                   |
 | `APP_NOME`       | `Importadora Link`  | Nome do sistema no login, no painel e nos e-mails da equipe. |
+| `INSTAGRAM_URL`  | _(vazio)_           | Instagram da importadora (ex.: `https://www.instagram.com/perfil`), divulgado na tela do código e no comprovante. |
 | `MARCA_NOME`     | `Importadora Volkswagen` | Marca mostrada ao participante (tela do código e comprovante por e-mail). |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
 | `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
@@ -75,13 +76,14 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
-- Ao clicar em **Enviar**, a pessoa vê o comprovante na tela ("Você está concorrendo!", o código,
-  como funciona o sorteio e "Boa sorte!") e recebe o mesmo comprovante por e-mail, com a marca
-  `MARCA_NOME` (sem o nome do sistema interno).
+- Ao clicar em **Enviar**, a pessoa vê o comprovante na tela ("Você está concorrendo a brindes!",
+  o código, como será o contato e o convite para seguir o Instagram) e recebe o mesmo comprovante por
+  e-mail, com a marca `MARCA_NOME` (sem o nome do sistema interno).
 - A data do cadastro é registrada (no fuso de Brasília).
-- **Um cadastro por CPF por dia**: se a pessoa tentar de novo no mesmo dia, vê o mesmo código; em
-  outro dia (outro evento), recebe um código novo, que vale para o sorteio daquele dia. O telefone
-  pode se repetir (ex.: pessoas da mesma família).
+- **Um cadastro por CPF, válido para todos os eventos.** Quem vai a outro evento envia o formulário
+  de novo: o sistema registra a **presença** naquele dia e mostra o mesmo código, sem duplicar o
+  cadastro nem reenviar o e-mail. O telefone precisa ser o mesmo do cadastro. Cadastros duplicados de
+  versões anteriores (mesmo CPF em dias diferentes) são juntados no mais antigo ao iniciar.
 - O código fica salvo no navegador até o fim do dia: reabrir a página ou escanear o QR de novo no
   mesmo dia mostra o código.
 - Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
@@ -137,8 +139,8 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - **Usuários**: criar, editar, redefinir senha, desativar e excluir (sempre fica ao menos um
   administrador ativo). Desativar ou redefinir a senha derruba as sessões abertas da pessoa.
 - **Atividade**: registro de quem entrou, sorteou, editou ou excluiu, com data e detalhes.
-- **Dia do evento**: escolha a data e o painel passa a mostrar só os cadastros daquele dia
-  (contagem, lista, CSV e sorteio). Abre no dia de hoje.
+- **Evento**: abre em "Todos os eventos"; escolha um dia para ver (e sortear) só quem esteve naquele
+  evento. A lista mostra os dias de presença de cada pessoa, e o CSV traz a coluna `presencas`.
 - Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
 - **Links e QR Code**: o link principal (`/`, o do QR impresso) e links extras (`/instagram`,
   `/whatsapp`…), cada um com destino editável, contagem de acessos e QR Code para baixar ou imprimir.
