@@ -208,12 +208,11 @@
       <h2>SEU CÓDIGO DE PARTICIPAÇÃO</h2>
       <div class="codigo" id="codigo">VW-0000</div>
       <p class="aviso" id="aviso"></p>
-      <p class="passos">Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail do cadastro.</p>
       <a class="insta" id="insta" href="#" target="_blank" rel="noopener" hidden>
         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1" fill="currentColor"/></svg>
         <span>Siga a <span class="insta-marca">Importadora</span> no Instagram<small id="insta-arroba"></small></span>
       </a>
-      <p class="marca"><span id="marca-comprovante">Importadora Volkswagen</span> · Comprovante de participação</p>
+      <p class="marca" id="marca-comprovante">Importadora Volkswagen</p>
     </div>
   </main>
 
@@ -245,7 +244,7 @@
           ? 'Você já tem cadastro e continua concorrendo. Seu código é o mesmo.'
           : 'Você já está cadastrado. Seu código continua o mesmo.';
       $('aviso').textContent = emailEnviado
-        ? (jaCadastrado ? `O comprovante foi enviado para ${emailEnviado} no seu primeiro cadastro.` : `Enviamos o comprovante para ${emailEnviado}.`)
+        ? (jaCadastrado ? `Seu código foi enviado para ${emailEnviado}.` : `Enviamos seu código para ${emailEnviado}.`)
         : 'Guarde este código: é com ele que você concorre.';
       $('tela-form').hidden = true;
       $('tela-codigo').hidden = false;

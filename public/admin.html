@@ -453,7 +453,7 @@
       <div class="campo">
         <label for="l-tipo">Leva para</label>
         <select id="l-tipo">
-          <option value="/sorteio">Formulário do sorteio</option>
+          <option value="/brindes">Formulário de cadastro (/brindes)</option>
           <option value="url">Outro endereço (Instagram, site, WhatsApp…)</option>
         </select>
       </div>
@@ -999,7 +999,7 @@
     let linkDoQr = null;
     const baseUrl = () => ($('base-url').value.trim() || location.origin).replace(/\/+$/, '');
     const urlDoLink = (l) => `${baseUrl()}/${l.slug}`;
-    const nomeDestino = (d) => d === '/sorteio' ? 'Formulário do sorteio' : d;
+    const nomeDestino = (d) => d === '/brindes' ? 'Formulário de cadastro' : d;
 
     async function carregarLinks() {
       try { links = await api('GET', '/api/admin/links'); } catch (e) { return toast(e.message, true); }
@@ -1176,8 +1176,8 @@
       $('l-slug-campo').hidden = principal;
       $('l-prefixo').textContent = baseUrl().replace(/^https?:\/\//, '') + '/';
       $('l-slug').value = l ? l.slug : '';
-      const interno = !l || l.destino === '/sorteio';
-      $('l-tipo').value = interno ? '/sorteio' : 'url';
+      const interno = !l || l.destino === '/brindes';
+      $('l-tipo').value = interno ? '/brindes' : 'url';
       $('l-url').value = interno ? '' : l.destino;
       $('l-url-campo').hidden = interno;
       $('l-utm').checked = l ? !!l.utm : true;
@@ -1192,7 +1192,7 @@
       const d = $('dlg-link');
       const body = {
         slug: $('l-slug').value,
-        destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/sorteio',
+        destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/brindes',
         descricao: $('l-desc').value,
         utm: $('l-utm').checked,
       };

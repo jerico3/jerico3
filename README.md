@@ -25,7 +25,7 @@ ADMIN_EMAIL=voce@empresa.com ADMIN_PASSWORD=uma-senha-forte EVENT_NAME="Importad
 ```
 
 - Link principal (o do QR Code): `http://localhost:3000/` → por padrão leva ao formulário
-- Formulário do sorteio: `http://localhost:3000/sorteio`
+- Formulário de cadastro: `http://localhost:3000/brindes` (o endereço antigo `/sorteio` redireciona para ele)
 - Painel: `http://localhost:3000/admin` (redireciona para o login em `/login`)
 
 Na primeira vez que o app sobe com o banco vazio, ele cria um **administrador** com `ADMIN_EMAIL` e
@@ -72,7 +72,7 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 
 ## Funcionalidades
 
-**Formulário do sorteio (`/sorteio`)**
+**Formulário de cadastro (`/brindes`)**
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).

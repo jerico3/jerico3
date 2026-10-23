@@ -36,6 +36,8 @@ const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // Marca mostrada ao participante (tela do código e e-mail de comprovante). O nome do sistema
 // (APP_NOME, "Central de Gestão") aparece só para a equipe.
 const MARCA = process.env.MARCA_NOME || 'Importadora Volkswagen';
+// Endereço do formulário de cadastro (o link principal do QR Code leva para cá).
+const FORMULARIO = '/brindes';
 // Instagram da importadora, divulgado na tela do código e no comprovante (opcional).
 const INSTAGRAM_URL = (() => {
   const url = process.env.INSTAGRAM_URL ?? 'https://www.instagram.com/importadoravolkswagen/';
@@ -139,7 +141,7 @@ db.exec(`
     cliques        INTEGER NOT NULL DEFAULT 0,
     atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/sorteio', 'Link principal (QR Code impresso)');
+  INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/brindes', 'Link principal (QR Code impresso)');
   -- Um registro por acesso a um link, para os relatórios. Não guarda IP nem nada que identifique a pessoa.
   CREATE TABLE IF NOT EXISTS acessos (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -196,6 +198,9 @@ db.exec(`
 const PRESENCAS_DO_CADASTRO = `INSERT OR IGNORE INTO presencas (participante_id, dia, criado_em)
   SELECT id, data_cadastro, criado_em FROM participantes`;
 db.exec(PRESENCAS_DO_CADASTRO);
+// O formulário mudou de /sorteio para /brindes.
+const LINKS_FORMULARIO = `UPDATE links SET destino = '${FORMULARIO}' WHERE destino = '/sorteio'`;
+db.exec(LINKS_FORMULARIO);
 
 const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
 // Dias de presença de cada cadastro, como lista "2026-10-22,2026-10-23".
@@ -591,37 +596,28 @@ ${rodape ? `<p style="margin:20px 0 0;font-size:12px;color:#64748b">${escHtml(ro
 // do sistema interno.
 function montarComprovante({ nome, cod }) {
   const primeiro = nome.split(' ')[0];
-  const contato = 'Se você for um dos contemplados, nossa equipe entra em contato pelo telefone ou e-mail informados no cadastro.';
   const privacidade = PUBLIC_URL ? ` Saiba como usamos seus dados: ${PUBLIC_URL}/privacidade` : '';
   const texto = [
-    `${MARCA} · Comprovante de participação`, '',
+    MARCA, '',
     `${primeiro}, você está concorrendo a brindes exclusivos!`, '',
     `Seu código de participação: ${cod}`,
-    `Participante: ${nome}`, '',
-    contato,
     ...(INSTAGRAM_URL ? ['', `Siga a ${MARCA} no Instagram e acompanhe as novidades: ${INSTAGRAM_ARROBA} ${INSTAGRAM_URL}`] : []), '',
     `Equipe ${MARCA}`, '',
     `Você recebeu este e-mail porque se cadastrou para concorrer a brindes da ${MARCA}.${privacidade}`,
   ].join('\n');
   const logo = PUBLIC_URL ? `<img src="${escHtml(PUBLIC_URL)}/qr-logo.png" width="56" height="56" alt="" style="display:block;margin:0 auto 10px;border-radius:50%">` : '';
-  const p = (t) => `<p style="margin:0 0 10px;font-size:14px;line-height:1.55;color:#334155">${escHtml(t)}</p>`;
   const html = `<!doctype html><html><body style="margin:0;background:#eef1f7;font-family:Arial,Helvetica,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:24px 12px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:520px;background:#fff;border-radius:14px;overflow:hidden">
 <tr><td align="center" style="background:#011250;color:#fff;padding:26px 24px 22px">
 ${logo}<div style="font-size:18px;font-weight:bold;letter-spacing:.02em">${escHtml(MARCA)}</div>
-<div style="font-size:12px;opacity:.75;text-transform:uppercase;letter-spacing:.12em;margin-top:4px">Comprovante de participação</div>
 </td></tr>
 <tr><td style="padding:28px 24px 8px;text-align:center">
 <h1 style="margin:0 0 6px;font-size:22px;color:#011250">${escHtml(primeiro)}, você está concorrendo a brindes exclusivos!</h1>
 <p style="margin:0 0 20px;font-size:15px;color:#475569">Seu cadastro foi confirmado. Este é o seu código de participação:</p>
 <div style="margin:0 auto;display:inline-block;background:#011250;color:#fff;font-size:34px;font-weight:bold;letter-spacing:.06em;padding:14px 28px;border-radius:10px">${escHtml(cod)}</div>
 </td></tr>
-<tr><td style="padding:20px 24px 4px">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="font-size:14px;border-top:1px solid #e2e8f0;border-bottom:1px solid #e2e8f0">
-<tr><td style="padding:10px 0;color:#64748b">Participante</td><td style="padding:10px 0;text-align:right;font-weight:bold">${escHtml(nome)}</td></tr>
-</table></td></tr>
-<tr><td style="padding:18px 24px 6px">${p(contato)}</td></tr>
+<tr><td style="padding:18px 0 0"></td></tr>
 ${INSTAGRAM_URL ? `<tr><td style="padding:6px 24px 26px">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb;border-radius:12px"><tr><td align="center" style="padding:20px 18px">
 <div style="font-size:16px;font-weight:bold;color:#011250">Siga a ${escHtml(MARCA)} no Instagram</div>
@@ -838,6 +834,7 @@ function restaurarBackup(arquivo) {
         }
         // Backup de antes das presenças: recria a partir do dia de cadastro.
         db.exec(PRESENCAS_DO_CADASTRO);
+        db.exec(LINKS_FORMULARIO);
         // Mantém a numeração dos códigos (VW-0001…) continuando de onde o backup parou.
         db.exec('DELETE FROM main.sqlite_sequence');
         if (db.prepare("SELECT 1 FROM origem.sqlite_master WHERE name = 'sqlite_sequence'").get()) {
@@ -1307,7 +1304,7 @@ rota('DELETE', '/api/admin/usuarios/:id', (req, res, { id }) => {
 // --- links / QR Code dinâmico ---
 
 // Endereços que já são páginas do app e não podem virar link.
-const SLUGS_RESERVADOS = new Set(['admin', 'login', 'sorteio', 'api', 'vendor']);
+const SLUGS_RESERVADOS = new Set(['admin', 'login', 'sorteio', 'brindes', 'api', 'vendor']);
 
 function normalizeLink(body, { principal }) {
   const slug = principal ? '' : String(body.slug || '').trim().toLowerCase().replace(/^\/+/, '');
@@ -1318,7 +1315,7 @@ function normalizeLink(body, { principal }) {
     if (!/^[a-z0-9-]{1,40}$/.test(slug)) errors.push('O endereço do link deve ter só letras minúsculas, números e hífen.');
     else if (SLUGS_RESERVADOS.has(slug)) errors.push(`"/${slug}" já é usado pelo sistema. Escolha outro endereço.`);
   }
-  // Só destinos internos ("/sorteio") ou páginas http(s); nada de javascript: e afins.
+  // Só destinos internos ("/brindes") ou páginas http(s); nada de javascript: e afins.
   let ok = /^\/[^/\\]/.test(destino) && destino.length <= 500;
   if (!ok) {
     try {
@@ -1326,7 +1323,7 @@ function normalizeLink(body, { principal }) {
       ok = (u.protocol === 'https:' || u.protocol === 'http:') && destino.length <= 2000;
     } catch {}
   }
-  if (!ok) errors.push('Informe um destino válido, começando com https:// (ou /sorteio para o formulário).');
+  if (!ok) errors.push('Informe um destino válido, começando com https:// (ou /brindes para o formulário).');
   if (!errors.length && destino === '/' + slug) errors.push('O link não pode apontar para ele mesmo.');
   return { slug, destino, descricao, utm: body.utm === false ? 0 : 1, errors };
 }
@@ -1400,7 +1397,7 @@ rota('GET', '/api/admin/links/:id/acessos', (req, res, { id }) => {
     dispositivos: q.acessosPorDispositivo.all(id, inicio),
     navegadores: q.acessosPorNavegador.all(id, inicio),
     // Para links que levam ao formulário: quantos cadastros houve no período (conversão).
-    cadastros: link.destino === '/sorteio'
+    cadastros: link.destino === FORMULARIO
       ? Object.fromEntries(q.cadastrosPorDia.all(inicio).map((r) => [r.dia, r.total]))
       : null,
     hoje: hoje(),
@@ -1433,7 +1430,7 @@ function dispositivo(ua) {
 }
 
 // Acrescenta etiquetas UTM para o Google Analytics / Instagram saberem que o acesso veio do QR Code.
-// Destinos internos (/sorteio) e endereços que já têm UTM ficam como estão.
+// Destinos internos (/brindes) e endereços que já têm UTM ficam como estão.
 function comUtm(destino, slug) {
   let u;
   try {
@@ -1552,9 +1549,11 @@ rota('GET', '/api/admin/auditoria', (req, res) => {
 
 // --- páginas ---
 
-rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') || { id: 0, slug: '', destino: '/sorteio' }));
+rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') || { id: 0, slug: '', destino: FORMULARIO }));
 
-rota('GET', '/sorteio', (req, res) => serveFile(res, 'index.html'));
+rota('GET', FORMULARIO, (req, res) => serveFile(res, 'index.html'));
+// Endereço antigo do formulário: continua funcionando (links e QR Codes já compartilhados).
+rota('GET', '/sorteio', (req, res) => redirect(res, FORMULARIO + (new URL(req.url, 'http://localhost').search)));
 
 rota('GET', '/privacidade', (req, res) => serveFile(res, 'privacidade.html'));
 
@@ -1622,7 +1621,7 @@ const server = http.createServer(async (req, res) => {
       if (m) return await r.handler(req, res, Object.fromEntries(r.keys.map((k, i) => [k, Number(m[i + 1])])));
     }
     if (req.method !== 'GET') return send(res, 405, 'Método não permitido');
-    if (pathname === '/index.html') return redirect(res, '/sorteio');
+    if (pathname === '/index.html') return redirect(res, FORMULARIO);
     const slug = pathname.toLowerCase().match(/^\/([a-z0-9-]{1,40})\/?$/);
     const link = slug && q.linkBySlug.get(slug[1]);
     if (link) return redirecionarLink(req, res, link);
