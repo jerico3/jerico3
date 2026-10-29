@@ -78,7 +78,7 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
   obrigatórios, além do aceite de uso dos dados (LGPD).
 - Campos obrigatórios marcados com asterisco. Ao enviar com algo faltando ou errado, cada campo com
   problema fica destacado em vermelho com a mensagem logo abaixo (o servidor confere de novo e devolve
-  o erro de cada campo). Novos campos criados no painel já vêm como obrigatórios.
+  o erro de cada campo). 
 - Ao clicar em **Enviar**, a pessoa vê o comprovante na tela ("Você está concorrendo a brindes!",
   o código, como será o contato e o convite para seguir o Instagram) e recebe o mesmo comprovante por
   e-mail, com a marca `MARCA_NOME` (sem o nome do sistema interno).
@@ -145,12 +145,10 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - **Evento**: abre em "Todos os eventos"; escolha um dia para ver (e sortear) só quem esteve naquele
   evento. A lista mostra os dias de presença de cada pessoa, e o CSV traz a coluna `presencas`.
 - Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
-- **Formulário** (só administradores): adicionar, editar, reordenar, esconder e excluir campos extras
-  do formulário (texto livre, caixa de seleção ou caixa de marcar sim/não, obrigatórios ou não). As
-  respostas aparecem no cadastro e viram colunas no CSV. Nome, telefone, CPF e e-mail são fixos.
-  - **Evento**: caixa de seleção que já vem criada (XX Fórum de Gastroenterologia Equina, Showroom).
-    A escolha fica registrada na presença: quem vai a outro evento escolhe de novo, com o mesmo
-    código. As opções podem ser trocadas a qualquer momento; o campo pode ser escondido, mas não excluído.
+- **Eventos** (só administradores): a lista de eventos da caixa **Evento** do formulário (hoje
+  XX Fórum de Gastroenterologia Equina e Showroom). Adicionar, renomear, reordenar e remover; renomear
+  leva junto as presenças já registradas, e remover só tira o evento da caixa (as presenças ficam).
+  A escolha fica registrada na presença: quem vai a outro evento escolhe de novo, com o mesmo código.
 - **Mostrar**: filtre o painel por evento ou por dia (contagem, lista, CSV e sorteio).
 - **Links e QR Code**: o link principal (`/`, o do QR impresso) e links extras (`/instagram`,
   `/whatsapp`…), cada um com destino editável, contagem de acessos e QR Code para baixar ou imprimir.

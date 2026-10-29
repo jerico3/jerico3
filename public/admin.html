@@ -77,6 +77,13 @@
     .btn:disabled { opacity: .5; cursor: not-allowed; }
     .btn-sortear { width: 100%; justify-content: center; font-size: 1.05rem; padding: 14px; }
 
+    .lista-eventos { list-style: none; margin: 14px 0; padding: 0; display: grid; gap: 8px; }
+    .lista-eventos li { display: grid; grid-template-columns: minmax(0, 1fr) 84px auto auto auto; gap: 8px; align-items: center; }
+    .lista-eventos li.muted { display: block; }
+    .lista-eventos .muted { font-size: .8rem; white-space: nowrap; text-align: right; }
+    .novo-evento { display: flex; gap: 8px; }
+    .novo-evento input { flex: 1; }
+    @media (max-width: 560px) { .lista-eventos li { grid-template-columns: minmax(0, 1fr) auto auto auto; } .lista-eventos li > span { display: none; } }
     .palco { text-align: center; padding: 28px 16px; margin-top: 16px; border-radius: 14px; background: var(--navy); color: #fff; }
     .palco small { text-transform: uppercase; letter-spacing: .1em; font-weight: 700; opacity: .7; font-size: .75rem; }
     .palco .num { font-size: clamp(2.6rem, 8vw, 4rem); font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -183,7 +190,7 @@
         <button role="tab" data-aba="sorteio" aria-selected="true">Sorteio</button>
         <button role="tab" data-aba="cadastros">Cadastros</button>
         <button role="tab" data-aba="links">Links e QR Code</button>
-        <button role="tab" data-aba="formulario" class="so-admin" hidden>Formulário</button>
+        <button role="tab" data-aba="eventos" class="so-admin" hidden>Eventos</button>
         <button role="tab" data-aba="usuarios" class="so-admin" hidden>Usuários</button>
         <button role="tab" data-aba="atividade" class="so-admin" hidden>Atividade</button>
         <button role="tab" data-aba="backups" class="so-admin" hidden>Backups</button>
@@ -326,31 +333,27 @@
       </div>
     </section>
 
-    <!-- Formulário -->
-    <section data-painel="formulario" hidden>
-      <div class="card">
+    <!-- Eventos -->
+    <section data-painel="eventos" hidden>
+      <div class="card" style="max-width:720px">
         <div class="cab">
-          <h2>Campos do formulário</h2>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <a class="btn" href="/cadastro" target="_blank" rel="noopener">Ver formulário</a>
-            <button class="btn primario" id="novo-campo">Novo campo</button>
-          </div>
+          <h2>Eventos do formulário</h2>
+          <a class="btn" href="/cadastro" target="_blank" rel="noopener">Ver formulário</a>
         </div>
         <p class="muted" style="margin-top:-6px">
-          Os campos aparecem no formulário nesta ordem, depois de nome, telefone, CPF e e-mail. As mudanças valem na hora
-          para quem abrir o formulário. Em <strong>Evento</strong>, a resposta fica registrada na presença: quem vai a
-          outro evento escolhe de novo e o painel mostra todos os eventos da pessoa.
+          São as opções da caixa <strong>Evento</strong> do formulário, nesta ordem. Quem vai a mais de um evento
+          escolhe de novo e continua com o mesmo código; o painel mostra todos os eventos da pessoa.
         </p>
-        <div class="tabela">
-          <table>
-            <thead><tr><th style="width:84px">Ordem</th><th>Campo</th><th>Tipo</th><th>Opções</th><th></th></tr></thead>
-            <tbody id="campos"></tbody>
-          </table>
+        <ul class="lista-eventos" id="lista-eventos"></ul>
+        <form class="novo-evento" id="form-novo-evento">
+          <input type="text" id="novo-evento" maxlength="120" placeholder="Nome do novo evento" aria-label="Nome do novo evento">
+          <button type="submit" class="btn">Adicionar</button>
+        </form>
+        <label class="check" style="margin-top:14px"><input type="checkbox" id="eventos-ativo"> Mostrar a caixa Evento no formulário (obrigatória)</label>
+        <div style="display:flex;gap:10px;align-items:center;margin-top:16px;flex-wrap:wrap">
+          <button class="btn primario" id="salvar-eventos" disabled>Salvar alterações</button>
+          <span class="muted" id="eventos-status" style="font-size:.85rem"></span>
         </div>
-        <p class="muted" style="font-size:.8rem;margin:12px 0 0">
-          Nome, telefone, CPF e e-mail são fixos: o CPF identifica a pessoa (um cadastro por CPF), o telefone confirma
-          quem volta a outro evento e o e-mail recebe o código.
-        </p>
       </div>
     </section>
 
@@ -427,32 +430,6 @@
       <div class="campo"><label for="c-cpf">CPF</label><input type="text" id="c-cpf" inputmode="numeric" required><div class="ajuda" id="c-cpf-ajuda" hidden>Só administradores veem e alteram o CPF completo.</div></div>
       <div class="campo"><label for="c-email">E-mail</label><input type="email" id="c-email" required></div>
       <p class="muted" id="c-dia" style="font-size:.85rem;margin:0"></p>
-      <div class="rodape-dlg">
-        <button type="button" class="btn" data-fechar>Cancelar</button>
-        <button type="submit" class="btn primario">Salvar</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="dlg-campo">
-    <form method="dialog" id="form-campo" novalidate>
-      <h3 id="dlg-campo-titulo">Novo campo</h3>
-      <div class="erro-dlg"></div>
-      <div class="campo"><label for="f-rotulo">Nome do campo (aparece no formulário)</label><input type="text" id="f-rotulo" maxlength="80" required placeholder="Ex.: Como conheceu a importadora?"></div>
-      <div class="campo" id="f-tipo-campo">
-        <label for="f-tipo">Tipo</label>
-        <select id="f-tipo">
-          <option value="selecao">Caixa de seleção (escolher uma opção)</option>
-          <option value="texto">Texto livre</option>
-          <option value="caixa">Caixa de marcar (sim/não)</option>
-        </select>
-      </div>
-      <div class="campo" id="f-opcoes-campo">
-        <label for="f-opcoes">Opções (uma por linha)</label>
-        <textarea id="f-opcoes" rows="5" style="width:100%;font:inherit;padding:10px 12px;border:1px solid var(--border);border-radius:10px"></textarea>
-      </div>
-      <label class="check"><input type="checkbox" id="f-obrigatorio"> Obrigatório</label>
-      <label class="check"><input type="checkbox" id="f-ativo"> Mostrar no formulário</label>
       <div class="rodape-dlg">
         <button type="button" class="btn" data-fechar>Cancelar</button>
         <button type="submit" class="btn primario">Salvar</button>
@@ -648,7 +625,7 @@
       if (aba === 'atividade') carregarAtividade();
       if (aba === 'links') carregarLinks();
       if (aba === 'backups') carregarBackups();
-      if (aba === 'formulario') carregarCampos();
+      if (aba === 'eventos') carregarEventos();
       try { sessionStorage.setItem('aba', aba); } catch {}
     }
     document.querySelectorAll('nav [data-aba]').forEach((b) => b.onclick = () => abrirAba(b.dataset.aba));
@@ -940,6 +917,8 @@
       'senha.redefinida': 'Criou nova senha pelo e-mail',
       'retencao': 'Limpeza automática (retenção)',
       'cadastros.unificados': 'Juntou cadastros do mesmo CPF',
+      'eventos.editados': 'Editou eventos do formulário',
+      'campos.unificados': 'Juntou campos do formulário',
       'campo.criado': 'Criou campo do formulário',
       'campo.editado': 'Editou campo do formulário',
       'campo.excluido': 'Excluiu campo do formulário',
@@ -968,91 +947,93 @@
     }
     $('atualizar-atividade').onclick = carregarAtividade;
 
-    // ---------- campos do formulário ----------
+    // ---------- eventos do formulário ----------
 
-    const NOMES_TIPO = { texto: 'Texto livre', selecao: 'Caixa de seleção', caixa: 'Sim/não' };
-    let campos = [];
+    // Lista em edição: { nome, antigo } (antigo = nome salvo, para renomear as presenças junto).
+    let eventos = [];
+    let presentesPorEvento = {};
+    let eventosAlterados = false;
 
-    async function carregarCampos() {
-      try { campos = (await api('GET', '/api/admin/campos')).campos; } catch (e) { return toast(e.message, true); }
-      const tbody = $('campos');
-      if (!campos.length) return linhaVazia(tbody, 5, 'Nenhum campo extra.');
-      tbody.replaceChildren(...campos.map((c, i) => {
-        const tr = el('tr');
-        const ordem = el('td', null, 'acoes');
-        const sobe = botao('↑', '', () => moverCampo(i, -1));
-        const desce = botao('↓', '', () => moverCampo(i, 1));
+    async function carregarEventos() {
+      let r;
+      try { r = await api('GET', '/api/admin/eventos'); } catch (e) { return toast(e.message, true); }
+      eventos = r.eventos.map((nome) => ({ nome, antigo: nome }));
+      presentesPorEvento = r.presentes;
+      $('eventos-ativo').checked = r.ativo;
+      marcarEventos(false);
+      renderEventos();
+    }
+
+    function marcarEventos(alterado) {
+      eventosAlterados = alterado;
+      $('salvar-eventos').disabled = !alterado;
+      $('eventos-status').textContent = alterado ? 'Alterações ainda não salvas.' : '';
+    }
+
+    function renderEventos() {
+      const ul = $('lista-eventos');
+      if (!eventos.length) return ul.replaceChildren(el('li', 'Nenhum evento. Adicione abaixo.', 'muted'));
+      ul.replaceChildren(...eventos.map((ev, i) => {
+        const li = el('li');
+        const nome = el('input');
+        nome.type = 'text';
+        nome.maxLength = 120;
+        nome.value = ev.nome;
+        nome.setAttribute('aria-label', `Nome do evento ${i + 1}`);
+        nome.oninput = () => { ev.nome = nome.value; marcarEventos(true); };
+        const n = presentesPorEvento[ev.antigo] || 0;
+        const info = el('span', ev.antigo ? `${n} presente${n === 1 ? '' : 's'}` : 'novo', 'muted');
+        const sobe = botao('↑', '', () => mover(i, -1));
+        const desce = botao('↓', '', () => mover(i, 1));
         sobe.disabled = i === 0;
-        desce.disabled = i === campos.length - 1;
+        desce.disabled = i === eventos.length - 1;
         sobe.setAttribute('aria-label', 'Subir');
         desce.setAttribute('aria-label', 'Descer');
-        ordem.append(sobe, desce);
-        const nome = el('td', c.rotulo);
-        if (c.obrigatorio) nome.append(el('span', 'obrigatório', 'tag operador'));
-        if (!c.ativo) nome.append(el('span', 'oculto', 'tag perfil inativo'));
-        const acoes = el('td', null, 'acoes');
-        acoes.append(botao('Editar', '', () => abrirCampo(c)));
-        if (!c.sistema) acoes.append(botao('Excluir', 'perigo', () => excluirCampo(c)));
-        tr.append(ordem, nome, el('td', NOMES_TIPO[c.tipo]), el('td', c.opcoes.join(' · ') || '—', 'quebra'), acoes);
-        return tr;
+        const remover = botao('Remover', 'perigo', () => removerEvento(i));
+        li.append(nome, info, sobe, desce, remover);
+        return li;
       }));
     }
 
-    async function moverCampo(i, delta) {
-      const ids = campos.map((c) => c.id);
-      [ids[i], ids[i + delta]] = [ids[i + delta], ids[i]];
-      try { await api('POST', '/api/admin/campos/ordem', { ids }); } catch (e) { toast(e.message, true); }
-      carregarCampos();
+    function mover(i, delta) {
+      [eventos[i], eventos[i + delta]] = [eventos[i + delta], eventos[i]];
+      marcarEventos(true);
+      renderEventos();
     }
 
-    let campoEditando = null;
-    function abrirCampo(c = null) {
-      campoEditando = c;
-      const d = $('dlg-campo');
-      erroDialogo(d, '');
-      $('dlg-campo-titulo').textContent = c ? `Editar "${c.rotulo}"` : 'Novo campo';
-      $('f-rotulo').value = c ? c.rotulo : '';
-      $('f-tipo').value = c ? c.tipo : 'selecao';
-      $('f-tipo-campo').hidden = !!c?.sistema; // o campo Evento é sempre uma caixa de seleção
-      $('f-opcoes').value = c ? c.opcoes.join('\n') : '';
-      $('f-obrigatorio').checked = c ? !!c.obrigatorio : true;
-      $('f-ativo').checked = c ? !!c.ativo : true;
-      sincTipo();
-      d.showModal();
+    async function removerEvento(i) {
+      const ev = eventos[i];
+      const n = presentesPorEvento[ev.antigo] || 0;
+      if (n) {
+        const ok = await confirmar(`Remover "${ev.nome}" do formulário?`,
+          `O evento sai da caixa de seleção. As ${n} presença${n === 1 ? '' : 's'} já registrada${n === 1 ? '' : 's'} nele continua${n === 1 ? '' : 'm'} no painel e no CSV.`, 'Remover');
+        if (!ok) return;
+      }
+      eventos.splice(i, 1);
+      marcarEventos(true);
+      renderEventos();
     }
-    const sincTipo = () => { $('f-opcoes-campo').hidden = $('f-tipo').value !== 'selecao'; };
-    $('f-tipo').onchange = sincTipo;
-    $('novo-campo').onclick = () => abrirCampo();
 
-    $('form-campo').onsubmit = async (ev) => {
-      ev.preventDefault();
-      const d = $('dlg-campo');
-      const body = {
-        rotulo: $('f-rotulo').value,
-        tipo: $('f-tipo').value,
-        opcoes: $('f-opcoes').value.split('\n'),
-        obrigatorio: $('f-obrigatorio').checked,
-        ativo: $('f-ativo').checked,
-      };
-      try {
-        if (campoEditando) await api('PUT', `/api/admin/campos/${campoEditando.id}`, body);
-        else await api('POST', '/api/admin/campos', body);
-        d.close();
-        toast(campoEditando ? 'Campo atualizado.' : 'Campo criado.');
-        carregarCampos();
-      } catch (e) { erroDialogo(d, e.message); }
+    $('form-novo-evento').onsubmit = (e) => {
+      e.preventDefault();
+      const nome = $('novo-evento').value.trim();
+      if (!nome) return $('novo-evento').focus();
+      if (eventos.some((ev) => ev.nome.trim().toLowerCase() === nome.toLowerCase())) return toast('Esse evento já está na lista.', true);
+      eventos.push({ nome, antigo: null });
+      $('novo-evento').value = '';
+      marcarEventos(true);
+      renderEventos();
+      $('novo-evento').focus();
     };
+    $('eventos-ativo').onchange = () => marcarEventos(true);
 
-    async function excluirCampo(c) {
-      const ok = await confirmar(`Excluir o campo "${c.rotulo}"?`,
-        'Ele sai do formulário e do CSV. Se só quiser escondê-lo por um tempo, edite e desmarque "Mostrar no formulário".', 'Excluir');
-      if (!ok) return;
+    $('salvar-eventos').onclick = async () => {
       try {
-        await api('DELETE', `/api/admin/campos/${c.id}`);
-        toast('Campo excluído.');
-        carregarCampos();
+        await api('PUT', '/api/admin/eventos', { eventos, ativo: $('eventos-ativo').checked });
+        toast('Eventos salvos. O formulário já mostra a nova lista.');
+        carregarEventos();
       } catch (e) { toast(e.message, true); }
-    }
+    };
 
     // ---------- backups ----------
 
@@ -1397,7 +1378,8 @@
       let aba = 'sorteio';
       try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
       if (aba === 'qr') aba = 'links';
-      if (!ehAdmin() && ['usuarios', 'atividade', 'backups', 'formulario'].includes(aba)) aba = 'sorteio';
+      if (aba === 'formulario') aba = 'eventos';
+      if (!ehAdmin() && ['usuarios', 'atividade', 'backups', 'eventos'].includes(aba)) aba = 'sorteio';
       abrirAba(aba);
       await carregar();
       // Atualiza os números sozinho durante o evento (sem atrapalhar quem está editando).

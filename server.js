@@ -267,11 +267,10 @@ const q = {
   insertPresenca: db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia, evento) VALUES (?, ?, ?)'),
   updateRespostas: db.prepare('UPDATE participantes SET respostas = ? WHERE id = ?'),
   campos: db.prepare('SELECT * FROM campos ORDER BY ordem, id'),
-  campoById: db.prepare('SELECT * FROM campos WHERE id = ?'),
-  insertCampo: db.prepare('INSERT INTO campos (rotulo, tipo, opcoes, obrigatorio, ativo, ordem) VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ordem), 0) + 1 FROM campos))'),
-  updateCampo: db.prepare('UPDATE campos SET rotulo = ?, tipo = ?, opcoes = ?, obrigatorio = ?, ativo = ? WHERE id = ?'),
-  ordemCampo: db.prepare('UPDATE campos SET ordem = ? WHERE id = ?'),
-  deleteCampo: db.prepare('DELETE FROM campos WHERE id = ? AND sistema IS NULL'),
+  campoEvento: db.prepare("SELECT * FROM campos WHERE sistema = 'evento'"),
+  updateEventos: db.prepare("UPDATE campos SET opcoes = ?, ativo = ? WHERE sistema = 'evento'"),
+  renomearEvento: db.prepare('UPDATE OR IGNORE presencas SET evento = ? WHERE evento = ?'),
+  apagarEventoAntigo: db.prepare('DELETE FROM presencas WHERE evento = ?'),
   eventos: db.prepare("SELECT evento, COUNT(DISTINCT participante_id) AS total FROM presencas WHERE evento <> '' GROUP BY evento ORDER BY MIN(dia), evento"),
   byEvento: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes
     WHERE id IN (SELECT participante_id FROM presencas WHERE evento = ?) ORDER BY id`),
@@ -624,7 +623,6 @@ function normalize(body, { exigirAceite = true } = {}) {
 
 // ---------- campos configuráveis do formulário ----------
 
-const TIPOS_CAMPO = { texto: 'Texto', selecao: 'Caixa de seleção', caixa: 'Caixa de marcar (sim/não)' };
 const lerCampo = (c) => ({ ...c, opcoes: JSON.parse(c.opcoes || '[]') });
 const camposAtivos = () => q.campos.all().filter((c) => c.ativo).map(lerCampo);
 
@@ -648,21 +646,6 @@ function normalizeRespostas(body) {
     else if (v !== '' && v !== false) respostas[c.id] = v;
   }
   return { respostas, evento, errors: Object.values(porCampo), porCampo };
-}
-
-function normalizeCampo(body, atual) {
-  const rotulo = String(body.rotulo || '').trim().replace(/\s+/g, ' ').slice(0, 80);
-  const tipo = atual?.sistema === 'evento' ? 'selecao' : body.tipo;
-  const opcoes = [...new Set((Array.isArray(body.opcoes) ? body.opcoes : [])
-    .map((o) => String(o).trim().replace(/\s+/g, ' ').slice(0, 120)).filter(Boolean))].slice(0, 50);
-  const errors = [];
-  if (rotulo.length < 2) errors.push('Informe o nome do campo.');
-  if (!TIPOS_CAMPO[tipo]) errors.push('Escolha o tipo do campo.');
-  if (tipo === 'selecao' && !opcoes.length) errors.push('Informe ao menos uma opção.');
-  return {
-    rotulo, tipo, opcoes: tipo === 'selecao' ? opcoes : [],
-    obrigatorio: body.obrigatorio === true ? 1 : 0, ativo: body.ativo === false ? 0 : 1, errors,
-  };
 }
 
 function normalizeUsuario(body, { senhaObrigatoria }) {
@@ -966,6 +949,7 @@ function restaurarBackup(arquivo) {
     db.exec('PRAGMA foreign_keys = ON');
   }
   unificarDuplicados();
+  unificarCamposExtras();
   return { ...resumo, seguranca };
 }
 
@@ -1678,53 +1662,43 @@ rota('POST', '/api/admin/backups/enviar', async (req, res) => {
   }
 });
 
-// --- campos do formulário ---
+// --- eventos (opções do campo Evento do formulário) ---
 
-rota('GET', '/api/admin/campos', (req, res) => {
+rota('GET', '/api/admin/eventos', (req, res) => {
   if (!exigirUsuario(req, res, 'admin')) return;
-  json(res, 200, { campos: q.campos.all().map(lerCampo), tipos: TIPOS_CAMPO });
+  const c = lerCampo(q.campoEvento.get());
+  json(res, 200, { eventos: c.opcoes, ativo: !!c.ativo, presentes: Object.fromEntries(q.eventos.all().map((e) => [e.evento, e.total])) });
 });
 
-rota('POST', '/api/admin/campos', async (req, res) => {
+// Recebe a lista inteira: { eventos: [{ nome, antigo }], ativo }. "antigo" é o nome anterior de um
+// evento renomeado: as presenças já registradas passam para o novo nome.
+rota('PUT', '/api/admin/eventos', async (req, res) => {
   const u = exigirUsuario(req, res, 'admin');
   if (!u) return;
-  const d = normalizeCampo(await readJson(req).catch(() => ({})));
-  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
-  const id = Number(q.insertCampo.run(d.rotulo, d.tipo, JSON.stringify(d.opcoes), d.obrigatorio, d.ativo).lastInsertRowid);
-  registrar(u, 'campo.criado', `${d.rotulo} (${TIPOS_CAMPO[d.tipo]})`);
-  json(res, 201, lerCampo(q.campoById.get(id)));
-});
-
-rota('PUT', '/api/admin/campos/:id', async (req, res, { id }) => {
-  const u = exigirUsuario(req, res, 'admin');
-  if (!u) return;
-  const atual = q.campoById.get(id);
-  if (!atual) return json(res, 404, { erro: 'Campo não encontrado.' });
-  const d = normalizeCampo(await readJson(req).catch(() => ({})), atual);
-  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
-  q.updateCampo.run(d.rotulo, d.tipo, JSON.stringify(d.opcoes), d.obrigatorio, d.ativo, id);
-  registrar(u, 'campo.editado', `${d.rotulo}${d.tipo === 'selecao' ? ' · opções: ' + d.opcoes.join(', ') : ''}${d.ativo ? '' : ' · desativado'}`);
-  json(res, 200, lerCampo(q.campoById.get(id)));
-});
-
-rota('DELETE', '/api/admin/campos/:id', (req, res, { id }) => {
-  const u = exigirUsuario(req, res, 'admin');
-  if (!u) return;
-  const atual = q.campoById.get(id);
-  if (!atual) return json(res, 404, { erro: 'Campo não encontrado.' });
-  if (atual.sistema) return json(res, 409, { erro: 'O campo Evento não pode ser excluído. Desative-o se não quiser mostrá-lo.' });
-  q.deleteCampo.run(id);
-  registrar(u, 'campo.excluido', atual.rotulo);
-  json(res, 200, { ok: true });
-});
-
-// Nova ordem dos campos: { ids: [3, 1, 2] }.
-rota('POST', '/api/admin/campos/ordem', async (req, res) => {
-  const u = exigirUsuario(req, res, 'admin');
-  if (!u) return;
-  const ids = (await readJson(req).catch(() => ({}))).ids;
-  if (!Array.isArray(ids)) return json(res, 422, { erro: 'Ordem inválida.' });
-  transacao(() => ids.forEach((cid, i) => q.ordemCampo.run(i, Number(cid))));
+  const body = await readJson(req).catch(() => ({}));
+  const itens = (Array.isArray(body.eventos) ? body.eventos : [])
+    .map((e) => ({ nome: String(e?.nome || '').trim().replace(/\s+/g, ' ').slice(0, 120), antigo: typeof e?.antigo === 'string' ? e.antigo : null }))
+    .filter((e) => e.nome);
+  const nomes = [...new Set(itens.map((e) => e.nome))];
+  if (nomes.length !== itens.length) return json(res, 422, { erro: 'Há eventos com o mesmo nome.' });
+  const ativo = body.ativo !== false;
+  if (ativo && !nomes.length) return json(res, 422, { erro: 'Cadastre ao menos um evento.' });
+  if (nomes.length > 50) return json(res, 422, { erro: 'São no máximo 50 eventos.' });
+  const anterior = lerCampo(q.campoEvento.get()).opcoes;
+  const renomeados = itens.filter((e) => e.antigo && e.antigo !== e.nome && !nomes.includes(e.antigo));
+  transacao(() => {
+    for (const e of renomeados) {
+      q.renomearEvento.run(e.nome, e.antigo);
+      q.apagarEventoAntigo.run(e.antigo); // sobra só se a pessoa já tinha o novo nome no mesmo dia
+    }
+    q.updateEventos.run(JSON.stringify(nomes), ativo ? 1 : 0);
+  });
+  const mudancas = [
+    ...nomes.filter((n) => !anterior.includes(n) && !renomeados.some((e) => e.nome === n)).map((n) => `adicionou "${n}"`),
+    ...renomeados.map((e) => `renomeou "${e.antigo}" para "${e.nome}"`),
+    ...anterior.filter((n) => !nomes.includes(n) && !renomeados.some((e) => e.antigo === n)).map((n) => `removeu "${n}"`),
+  ];
+  registrar(u, 'eventos.editados', (mudancas.join('; ') || 'mudou a ordem') + (ativo ? '' : ' · campo escondido do formulário'));
   json(res, 200, { ok: true });
 });
 
@@ -1850,6 +1824,33 @@ function unificarDuplicados() {
   console.log(`Cadastros duplicados juntados: ${juntados.join(', ')}`);
 }
 
+// Versão anterior permitia criar campos extras; uma cópia do campo Evento criada assim é juntada no
+// campo Evento de verdade (opções e respostas), e os demais campos extras saem do formulário.
+function unificarCamposExtras() {
+  const extras = q.campos.all().filter((c) => !c.sistema).map(lerCampo);
+  if (!extras.length) return;
+  transacao(() => {
+    let opcoes = lerCampo(q.campoEvento.get()).opcoes;
+    for (const c of extras) {
+      if (c.tipo === 'selecao' && /evento/i.test(c.rotulo)) {
+        opcoes = [...new Set([...opcoes, ...c.opcoes])];
+        const comResposta = db.prepare("SELECT id, respostas FROM participantes WHERE respostas <> '{}'").all()
+          .filter((p) => JSON.parse(p.respostas)[c.id] != null);
+        for (const p of comResposta) {
+          const r = JSON.parse(p.respostas);
+          const ev = r[c.id];
+          delete r[c.id];
+          q.updateRespostas.run(JSON.stringify(r), p.id);
+          db.prepare("UPDATE OR IGNORE presencas SET evento = ? WHERE participante_id = ? AND evento = ''").run(ev, p.id);
+        }
+      }
+      db.prepare('DELETE FROM campos WHERE id = ?').run(c.id);
+    }
+    db.prepare("UPDATE campos SET opcoes = ? WHERE sistema = 'evento'").run(JSON.stringify(opcoes));
+  });
+  registrar(null, 'campos.unificados', `Campos extras juntados ao campo Evento: ${extras.map((c) => c.rotulo).join(', ')}`);
+}
+
 function aplicarRetencao() {
   if (!RETENCAO_DIAS) return;
   const limite = hoje(new Date(Date.now() - RETENCAO_DIAS * 86400000));
@@ -1866,6 +1867,7 @@ function aplicarRetencao() {
   console.log(`Retenção: ${ids.length} cadastros antigos apagados.`);
 }
 unificarDuplicados();
+unificarCamposExtras();
 aplicarRetencao();
 setInterval(aplicarRetencao, 6 * 60 * 60 * 1000).unref();
 backupAutomatico();
