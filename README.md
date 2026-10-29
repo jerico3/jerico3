@@ -25,7 +25,7 @@ ADMIN_EMAIL=voce@empresa.com ADMIN_PASSWORD=uma-senha-forte EVENT_NAME="Importad
 ```
 
 - Link principal (o do QR Code): `http://localhost:3000/` → por padrão leva ao formulário
-- Formulário de cadastro: `http://localhost:3000/brindes` (o endereço antigo `/sorteio` redireciona para ele)
+- Formulário de cadastro: `http://localhost:3000/cadastro` (os endereços antigos `/sorteio` e `/brindes` redirecionam para ele)
 - Painel: `http://localhost:3000/admin` (redireciona para o login em `/login`)
 
 Na primeira vez que o app sobe com o banco vazio, ele cria um **administrador** com `ADMIN_EMAIL` e
@@ -72,7 +72,7 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 
 ## Funcionalidades
 
-**Formulário de cadastro (`/brindes`)**
+**Formulário de cadastro (`/cadastro`)**
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
@@ -142,6 +142,13 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - **Evento**: abre em "Todos os eventos"; escolha um dia para ver (e sortear) só quem esteve naquele
   evento. A lista mostra os dias de presença de cada pessoa, e o CSV traz a coluna `presencas`.
 - Total de participantes, lista com busca (código, nome, CPF ou telefone) e exportação CSV (abre direto no Excel).
+- **Formulário** (só administradores): adicionar, editar, reordenar, esconder e excluir campos extras
+  do formulário (texto livre, caixa de seleção ou caixa de marcar sim/não, obrigatórios ou não). As
+  respostas aparecem no cadastro e viram colunas no CSV. Nome, telefone, CPF e e-mail são fixos.
+  - **Evento**: caixa de seleção que já vem criada (XX Fórum de Gastroenterologia Equina, Showroom).
+    A escolha fica registrada na presença: quem vai a outro evento escolhe de novo, com o mesmo
+    código. As opções podem ser trocadas a qualquer momento; o campo pode ser escondido, mas não excluído.
+- **Mostrar**: filtre o painel por evento ou por dia (contagem, lista, CSV e sorteio).
 - **Links e QR Code**: o link principal (`/`, o do QR impresso) e links extras (`/instagram`,
   `/whatsapp`…), cada um com destino editável, contagem de acessos e QR Code para baixar ou imprimir.
   O redirecionamento é temporário (302, sem cache), então a troca de destino vale na hora, inclusive

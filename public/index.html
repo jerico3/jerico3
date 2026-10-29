@@ -67,7 +67,7 @@
       .full { grid-column: 1 / -1; }
     }
     label { display: block; font-size: .85rem; font-weight: 700; color: var(--label); margin-bottom: 6px; }
-    input[type=text], input[type=tel], input[type=email] {
+    input[type=text], input[type=tel], input[type=email], select {
       width: 100%;
       font: inherit;
       font-size: 16px; /* evita zoom automático no iOS */
@@ -78,7 +78,15 @@
       border-radius: 3px;
       background: #fff;
     }
+    select {
+      appearance: none; -webkit-appearance: none; cursor: pointer; padding-right: 36px;
+      background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%230a1a80' stroke-width='2'/%3E%3C/svg%3E") right 12px center no-repeat;
+    }
+    select:invalid { color: var(--placeholder); }
+    select option { color: var(--navy); }
+    .grid .check { margin: 0; }
     input::placeholder { color: var(--placeholder); }
+    select:focus,
     input:focus { outline: none; border-color: var(--navy-2); box-shadow: 0 0 0 3px rgba(10, 26, 128, .15); }
     .check { display: flex; gap: 8px; align-items: flex-start; margin: 16px 0; font-size: .78rem; color: #5b6478; }
     .check input { width: 18px; height: 18px; margin: 0; accent-color: var(--navy-2); flex-shrink: 0; }
@@ -161,7 +169,7 @@
 
     <form class="card" id="form" novalidate>
       <div class="error" id="erro" role="alert"></div>
-      <div class="grid">
+      <div class="grid" id="campos">
         <div class="full">
           <label for="nome">Nome completo</label>
           <input type="text" id="nome" name="nome" autocomplete="name" required maxlength="120" placeholder="Digite seu nome">
@@ -232,6 +240,52 @@
 
     const formatCodigo = (id) => prefixo + String(id).padStart(4, '0');
 
+    // Campos extras configurados no painel (aba Formulário), como o "Evento".
+    let camposExtras = [];
+    function montarCampos(campos) {
+      camposExtras = campos || [];
+      const grade = $('campos');
+      for (const c of camposExtras) {
+        const box = document.createElement('div');
+        box.className = 'full';
+        const id = `campo-${c.id}`;
+        const obrig = c.obrigatorio ? '<span class="obrig" aria-label="obrigatório">*</span> ' : '';
+        if (c.tipo === 'caixa') {
+          box.classList.add('check');
+          box.innerHTML = `<input type="checkbox" id="${id}"><label for="${id}">${obrig}</label>`;
+          box.querySelector('label').append(c.rotulo);
+        } else {
+          box.innerHTML = `<label for="${id}"></label>`;
+          box.querySelector('label').textContent = c.rotulo;
+          let campo;
+          if (c.tipo === 'selecao') {
+            campo = document.createElement('select');
+            campo.required = true; // deixa o texto "Selecione" em cinza enquanto nada foi escolhido
+            campo.append(new Option('Selecione', ''));
+            for (const o of c.opcoes) campo.append(new Option(o, o));
+          } else {
+            campo = document.createElement('input');
+            campo.type = 'text';
+            campo.maxLength = 300;
+            campo.placeholder = 'Digite aqui';
+          }
+          campo.id = id;
+          box.append(campo);
+        }
+        grade.append(box);
+      }
+    }
+    function lerRespostas() {
+      const respostas = {};
+      for (const c of camposExtras) {
+        const campo = $(`campo-${c.id}`);
+        const v = c.tipo === 'caixa' ? campo.checked : campo.value.trim();
+        if (c.obrigatorio && !v) return { erro: c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? `Escolha uma opção em "${c.rotulo}".` : `Preencha "${c.rotulo}".`, campo };
+        respostas[c.id] = v;
+      }
+      return { respostas };
+    }
+
     function mostrarCodigo({ id, nome, jaCadastrado, novaPresenca, emailEnviado }) {
       const primeiroNome = (nome || '').split(' ')[0];
       $('codigo').textContent = formatCodigo(id);
@@ -294,6 +348,8 @@
       if (telefone.length < 10) return showError('Informe um telefone válido com DDD.');
       if (!cpfValido(cpf)) return showError('Informe um CPF válido.');
       if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError('Informe um e-mail válido.');
+      const extras = lerRespostas();
+      if (extras.erro) { extras.campo.focus(); return showError(extras.erro); }
       if (!$('aceite').checked) return showError('Para participar, é preciso concordar com o Aviso de Privacidade.');
 
       const btn = $('enviar');
@@ -303,7 +359,7 @@
         const res = await fetch('/api/cadastro', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ nome, cpf, telefone, email, aceite: true, marketing: $('marketing').checked, site: $('site').value }),
+          body: JSON.stringify({ nome, cpf, telefone, email, respostas: extras.respostas, aceite: true, marketing: $('marketing').checked, site: $('site').value }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
@@ -329,11 +385,12 @@
       if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
       if (cfg.hoje) hoje = cfg.hoje;
       if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
-      if (cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.privacidade.controlador;
+      if (cfg.marca || cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.marca || cfg.privacidade.controlador;
       if (cfg.marca) {
         $('marca-comprovante').textContent = cfg.marca;
         document.querySelector('.insta-marca').textContent = cfg.marca;
       }
+      montarCampos(cfg.campos);
       if (cfg.instagram) {
         $('insta').href = cfg.instagram.url;
         $('insta-arroba').textContent = cfg.instagram.arroba;

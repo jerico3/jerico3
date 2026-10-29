@@ -37,7 +37,7 @@ const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // (APP_NOME, "Central de Gestão") aparece só para a equipe.
 const MARCA = process.env.MARCA_NOME || 'Importadora Volkswagen';
 // Endereço do formulário de cadastro (o link principal do QR Code leva para cá).
-const FORMULARIO = '/brindes';
+const FORMULARIO = '/cadastro';
 // Instagram da importadora, divulgado na tela do código e no comprovante (opcional).
 const INSTAGRAM_URL = (() => {
   const url = process.env.INSTAGRAM_URL ?? 'https://www.instagram.com/importadoravolkswagen/';
@@ -96,14 +96,27 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS participantes_data ON participantes (data_cadastro);
   CREATE INDEX IF NOT EXISTS participantes_cpf ON participantes (cpf);
   -- Um cadastro por pessoa (CPF) vale para todos os eventos; cada evento em que ela aparece (e envia
-  -- o formulário de novo) vira uma presença.
+  -- o formulário de novo) vira uma presença, com o dia e o evento escolhido no formulário.
   CREATE TABLE IF NOT EXISTS presencas (
     participante_id INTEGER NOT NULL REFERENCES participantes(id),
     dia             TEXT NOT NULL,
+    evento          TEXT NOT NULL DEFAULT '',
     criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
-    PRIMARY KEY (participante_id, dia)
+    PRIMARY KEY (participante_id, dia, evento)
   );
-  CREATE INDEX IF NOT EXISTS presencas_dia ON presencas (dia);
+  -- Campos extras do formulário, configurados no painel (aba Formulário). O campo "evento" é especial:
+  -- a resposta vai para a presença; os demais ficam em participantes.respostas (JSON).
+  CREATE TABLE IF NOT EXISTS campos (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    rotulo      TEXT NOT NULL,
+    tipo        TEXT NOT NULL CHECK (tipo IN ('texto', 'selecao', 'caixa')),
+    opcoes      TEXT NOT NULL DEFAULT '[]',
+    obrigatorio INTEGER NOT NULL DEFAULT 0,
+    ativo       INTEGER NOT NULL DEFAULT 1,
+    ordem       INTEGER NOT NULL DEFAULT 0,
+    sistema     TEXT,
+    criado_em   TEXT NOT NULL DEFAULT (datetime('now'))
+  );
   CREATE TABLE IF NOT EXISTS sorteios (
     id              INTEGER PRIMARY KEY AUTOINCREMENT,
     participante_id INTEGER NOT NULL REFERENCES participantes(id),
@@ -141,7 +154,7 @@ db.exec(`
     cliques        INTEGER NOT NULL DEFAULT 0,
     atualizado_em  TEXT NOT NULL DEFAULT (datetime('now'))
   );
-  INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/brindes', 'Link principal (QR Code impresso)');
+  INSERT OR IGNORE INTO links (slug, destino, descricao) VALUES ('', '/cadastro', 'Link principal (QR Code impresso)');
   -- Um registro por acesso a um link, para os relatórios. Não guarda IP nem nada que identifique a pessoa.
   CREATE TABLE IF NOT EXISTS acessos (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -194,26 +207,78 @@ db.exec(`
   );
 `);
 
+// Presenças de antes do campo "evento": a tabela ganha a coluna e passa a ter o evento na chave.
+if (!db.prepare('PRAGMA table_info(presencas)').all().some((c) => c.name === 'evento')) {
+  db.exec(`
+    BEGIN;
+    CREATE TABLE presencas_novo (
+      participante_id INTEGER NOT NULL REFERENCES participantes(id),
+      dia             TEXT NOT NULL,
+      evento          TEXT NOT NULL DEFAULT '',
+      criado_em       TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (participante_id, dia, evento)
+    );
+    INSERT INTO presencas_novo (participante_id, dia, criado_em) SELECT participante_id, dia, criado_em FROM presencas;
+    DROP TABLE presencas;
+    ALTER TABLE presencas_novo RENAME TO presencas;
+    COMMIT;
+  `);
+}
+db.exec(`
+  CREATE INDEX IF NOT EXISTS presencas_dia ON presencas (dia);
+  CREATE INDEX IF NOT EXISTS presencas_evento ON presencas (evento);
+`);
+if (!db.prepare('PRAGMA table_info(participantes)').all().some((c) => c.name === 'respostas')) {
+  db.exec("ALTER TABLE participantes ADD COLUMN respostas TEXT NOT NULL DEFAULT '{}'");
+}
+// O campo "Evento" sempre existe (pode ser desativado, não excluído).
+const CAMPO_EVENTO = `INSERT INTO campos (rotulo, tipo, opcoes, obrigatorio, ativo, ordem, sistema)
+  SELECT 'Evento', 'selecao', '["XX Fórum de Gastroenterologia Equina","Showroom"]', 1, 1, 0, 'evento'
+  WHERE NOT EXISTS (SELECT 1 FROM campos WHERE sistema = 'evento')`;
+db.exec(CAMPO_EVENTO);
+
 // Cadastros de antes das presenças: o dia do cadastro conta como presença naquele evento.
 const PRESENCAS_DO_CADASTRO = `INSERT OR IGNORE INTO presencas (participante_id, dia, criado_em)
-  SELECT id, data_cadastro, criado_em FROM participantes`;
+  SELECT id, data_cadastro, criado_em FROM participantes p
+  WHERE NOT EXISTS (SELECT 1 FROM presencas WHERE participante_id = p.id AND dia = p.data_cadastro)`;
 db.exec(PRESENCAS_DO_CADASTRO);
-// O formulário mudou de /sorteio para /brindes.
-const LINKS_FORMULARIO = `UPDATE links SET destino = '${FORMULARIO}' WHERE destino = '/sorteio'`;
+// O formulário já esteve em /sorteio e em /brindes.
+const LINKS_FORMULARIO = `UPDATE links SET destino = '${FORMULARIO}' WHERE destino IN ('/sorteio', '/brindes')`;
 db.exec(LINKS_FORMULARIO);
 
-const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing';
-// Dias de presença de cada cadastro, como lista "2026-10-22,2026-10-23".
-const COM_PRESENCAS = `${PARTICIPANTE_COLS},
-  (SELECT GROUP_CONCAT(dia, ',') FROM (SELECT dia FROM presencas WHERE participante_id = participantes.id ORDER BY dia)) AS presencas`;
+const PARTICIPANTE_COLS = 'id, nome, cpf, telefone, email, data_cadastro, criado_em, aceite_em, termos_versao, aceita_marketing, respostas';
+// Presenças de cada cadastro, como JSON: [{"dia":"2026-10-22","evento":"Showroom"}, …].
+const PRESENCAS_JSON = (id) => `(SELECT json_group_array(json_object('dia', dia, 'evento', evento))
+  FROM (SELECT dia, evento FROM presencas WHERE participante_id = ${id} ORDER BY dia, criado_em, rowid)) AS presencas`;
+const COM_PRESENCAS = `${PARTICIPANTE_COLS}, ${PRESENCAS_JSON('participantes.id')}`;
+// Converte os campos JSON vindos do banco.
+const lerParticipante = (p) => p && {
+  ...p,
+  presencas: JSON.parse(p.presencas || '[]'),
+  respostas: JSON.parse(p.respostas || '{}'),
+};
 const USUARIO_COLS = 'id, nome, email, papel, ativo, criado_em, confirmado, totp_ativo, notif_cadastros';
 
 const q = {
   insert: db.prepare(`
-    INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro, aceite_em, termos_versao, aceita_marketing)
-    VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?)`),
-  byCpf: db.prepare('SELECT id, nome, telefone, email FROM participantes WHERE cpf = ? ORDER BY id LIMIT 1'),
-  insertPresenca: db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia) VALUES (?, ?)'),
+    INSERT INTO participantes (nome, cpf, telefone, email, data_cadastro, aceite_em, termos_versao, aceita_marketing, respostas)
+    VALUES (?, ?, ?, ?, ?, datetime('now'), ?, ?, ?)`),
+  byCpf: db.prepare('SELECT id, nome, telefone, email, respostas FROM participantes WHERE cpf = ? ORDER BY id LIMIT 1'),
+  insertPresenca: db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia, evento) VALUES (?, ?, ?)'),
+  updateRespostas: db.prepare('UPDATE participantes SET respostas = ? WHERE id = ?'),
+  campos: db.prepare('SELECT * FROM campos ORDER BY ordem, id'),
+  campoById: db.prepare('SELECT * FROM campos WHERE id = ?'),
+  insertCampo: db.prepare('INSERT INTO campos (rotulo, tipo, opcoes, obrigatorio, ativo, ordem) VALUES (?, ?, ?, ?, ?, (SELECT COALESCE(MAX(ordem), 0) + 1 FROM campos))'),
+  updateCampo: db.prepare('UPDATE campos SET rotulo = ?, tipo = ?, opcoes = ?, obrigatorio = ?, ativo = ? WHERE id = ?'),
+  ordemCampo: db.prepare('UPDATE campos SET ordem = ? WHERE id = ?'),
+  deleteCampo: db.prepare('DELETE FROM campos WHERE id = ? AND sistema IS NULL'),
+  eventos: db.prepare("SELECT evento, COUNT(DISTINCT participante_id) AS total FROM presencas WHERE evento <> '' GROUP BY evento ORDER BY MIN(dia), evento"),
+  byEvento: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes
+    WHERE id IN (SELECT participante_id FROM presencas WHERE evento = ?) ORDER BY id`),
+  eligibleByEvento: db.prepare(`
+    SELECT id FROM participantes
+    WHERE id IN (SELECT participante_id FROM presencas WHERE evento = ?) AND id NOT IN (SELECT participante_id FROM sorteios)
+    ORDER BY id`),
   deletePresencasOf: db.prepare('DELETE FROM presencas WHERE participante_id = ?'),
   // Retenção: conta a partir da última presença.
   expiredIds: db.prepare(`
@@ -222,7 +287,7 @@ const q = {
   all: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes ORDER BY id`),
   byDate: db.prepare(`SELECT ${COM_PRESENCAS} FROM participantes
     WHERE id IN (SELECT participante_id FROM presencas WHERE dia = ?) ORDER BY id`),
-  datas: db.prepare('SELECT dia AS data, COUNT(*) AS total FROM presencas GROUP BY dia ORDER BY dia DESC'),
+  datas: db.prepare('SELECT dia AS data, COUNT(DISTINCT participante_id) AS total FROM presencas GROUP BY dia ORDER BY dia DESC'),
   eligible: db.prepare(`
     SELECT id FROM participantes
     WHERE id NOT IN (SELECT participante_id FROM sorteios)
@@ -237,8 +302,7 @@ const q = {
   deleteDrawsOf: db.prepare('DELETE FROM sorteios WHERE participante_id = ?'),
   insertDraw: db.prepare('INSERT INTO sorteios (participante_id) VALUES (?)'),
   draws: db.prepare(`
-    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email, p.data_cadastro,
-      (SELECT GROUP_CONCAT(dia, ',') FROM presencas WHERE participante_id = p.id) AS presencas
+    SELECT s.id AS sorteio, s.sorteado_em, p.id, p.nome, p.cpf, p.telefone, p.email, p.data_cadastro, ${PRESENCAS_JSON('p.id')}
     FROM sorteios s JOIN participantes p ON p.id = s.participante_id
     ORDER BY s.id`),
   clearDraws: db.prepare('DELETE FROM sorteios'),
@@ -557,6 +621,45 @@ function normalize(body, { exigirAceite = true } = {}) {
   return { nome, cpf, telefone, email, marketing: body.marketing === true ? 1 : 0, errors };
 }
 
+// ---------- campos configuráveis do formulário ----------
+
+const TIPOS_CAMPO = { texto: 'Texto', selecao: 'Caixa de seleção', caixa: 'Caixa de marcar (sim/não)' };
+const lerCampo = (c) => ({ ...c, opcoes: JSON.parse(c.opcoes || '[]') });
+const camposAtivos = () => q.campos.all().filter((c) => c.ativo).map(lerCampo);
+
+// Confere as respostas dos campos extras enviadas pelo formulário.
+function normalizeRespostas(body) {
+  const recebidas = body.respostas && typeof body.respostas === 'object' ? body.respostas : {};
+  const respostas = {};
+  let evento = '';
+  const errors = [];
+  for (const c of camposAtivos()) {
+    let v = recebidas[c.id];
+    if (c.tipo === 'caixa') v = v === true;
+    else v = String(v ?? '').trim().slice(0, 300);
+    if (c.tipo === 'selecao' && v && !c.opcoes.includes(v)) { errors.push(`Escolha uma opção válida em "${c.rotulo}".`); continue; }
+    if (c.obrigatorio && (c.tipo === 'caixa' ? !v : !v)) { errors.push(c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? `Escolha uma opção em "${c.rotulo}".` : `Preencha "${c.rotulo}".`); continue; }
+    if (c.sistema === 'evento') evento = v;
+    else if (v !== '' && v !== false) respostas[c.id] = v;
+  }
+  return { respostas, evento, errors };
+}
+
+function normalizeCampo(body, atual) {
+  const rotulo = String(body.rotulo || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+  const tipo = atual?.sistema === 'evento' ? 'selecao' : body.tipo;
+  const opcoes = [...new Set((Array.isArray(body.opcoes) ? body.opcoes : [])
+    .map((o) => String(o).trim().replace(/\s+/g, ' ').slice(0, 120)).filter(Boolean))].slice(0, 50);
+  const errors = [];
+  if (rotulo.length < 2) errors.push('Informe o nome do campo.');
+  if (!TIPOS_CAMPO[tipo]) errors.push('Escolha o tipo do campo.');
+  if (tipo === 'selecao' && !opcoes.length) errors.push('Informe ao menos uma opção.');
+  return {
+    rotulo, tipo, opcoes: tipo === 'selecao' ? opcoes : [],
+    obrigatorio: body.obrigatorio === true ? 1 : 0, ativo: body.ativo === false ? 0 : 1, errors,
+  };
+}
+
 function normalizeUsuario(body, { senhaObrigatoria }) {
   const nome = String(body.nome || '').trim().replace(/\s+/g, ' ');
   const email = String(body.email || '').trim().toLowerCase();
@@ -731,6 +834,13 @@ function enfileirarEmail(para, assunto, conteudo) {
 
 // A cada cadastro: confirmação com o código para quem se inscreveu e aviso para os administradores
 // que deixaram ligada a opção "Receber e-mail a cada novo cadastro".
+// Respostas dos campos extras como linhas "Campo: resposta".
+function textoRespostas(respostas = {}) {
+  const campos = new Map(q.campos.all().map((c) => [String(c.id), c.rotulo]));
+  return Object.entries(respostas).filter(([id]) => campos.has(id))
+    .map(([id, v]) => `${campos.get(id)}: ${v === true ? 'sim' : v}`);
+}
+
 function notificarCadastro(p) {
   const cod = codigo(p.id);
   enfileirarEmail(p.email, `Você está concorrendo a brindes! Seu código é ${cod} · ${MARCA}`,
@@ -742,7 +852,8 @@ function notificarCadastro(p) {
       paragrafos: [
         `Nome: ${p.nome}`,
         `CPF: ${mascara} · Telefone: ${p.telefone} · E-mail: ${p.email}`,
-        `Cadastro em ${diaBr(p.dia)} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
+        `Cadastro em ${diaBr(p.dia)}${p.evento ? ` · evento: ${p.evento}` : ''} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
+        ...textoRespostas(p.respostas),
       ],
       botao: 'Abrir o painel',
       link: PUBLIC_URL ? `${PUBLIC_URL}/admin` : null,
@@ -782,7 +893,7 @@ function listarBackups() {
 // Tabelas restauradas (sessões, tickets de login e links de e-mail não voltam: todos entram de novo).
 // A auditoria não é substituída: o histórico do backup é somado ao atual, para não perder o registro
 // do que aconteceu entre o backup e a restauração.
-const TABELAS_RESTAURAR = ['usuarios', 'participantes', 'presencas', 'sorteios', 'links', 'acessos'];
+const TABELAS_RESTAURAR = ['usuarios', 'participantes', 'presencas', 'sorteios', 'links', 'acessos', 'campos'];
 
 // Confere se o arquivo é um banco deste sistema e conta o que ele tem.
 function inspecionarBackup(arquivo) {
@@ -835,6 +946,7 @@ function restaurarBackup(arquivo) {
         // Backup de antes das presenças: recria a partir do dia de cadastro.
         db.exec(PRESENCAS_DO_CADASTRO);
         db.exec(LINKS_FORMULARIO);
+        db.exec(CAMPO_EVENTO);
         // Mantém a numeração dos códigos (VW-0001…) continuando de onde o backup parou.
         db.exec('DELETE FROM main.sqlite_sequence');
         if (db.prepare("SELECT 1 FROM origem.sqlite_master WHERE name = 'sqlite_sequence'").get()) {
@@ -874,6 +986,7 @@ rota('GET', '/api/config', (req, res) => json(res, 200, {
   evento: EVENT_NAME,
   app: APP_NOME,
   marca: MARCA,
+  campos: camposAtivos().map(({ id, rotulo, tipo, opcoes, obrigatorio, sistema }) => ({ id, rotulo, tipo, opcoes, obrigatorio, sistema })),
   instagram: INSTAGRAM_URL ? { url: INSTAGRAM_URL, arroba: INSTAGRAM_ARROBA } : null,
   prefixo: CODE_PREFIX,
   hoje: hoje(),
@@ -907,10 +1020,12 @@ rota('POST', '/api/cadastro', async (req, res) => {
   if (body.site) return json(res, 400, { erro: 'Cadastro inválido.' });
 
   const data = normalize(body);
-  if (data.errors.length) return json(res, 422, { erro: data.errors.join(' ') });
+  const extras = normalizeRespostas(body);
+  const erros = [...data.errors, ...extras.errors];
+  if (erros.length) return json(res, 422, { erro: erros.join(' ') });
 
   // Um cadastro por CPF, válido em todos os eventos. Quem volta em outro evento envia o formulário de
-  // novo e ganha a presença daquele dia, com o mesmo código.
+  // novo e ganha a presença daquele dia e evento, com o mesmo código.
   const dia = hoje();
   const existing = q.byCpf.get(data.cpf);
   if (existing) {
@@ -919,16 +1034,19 @@ rota('POST', '/api/cadastro', async (req, res) => {
     if (existing.telefone !== data.telefone) {
       return json(res, 409, { erro: 'Este CPF já está cadastrado. Se foi você, informe o mesmo telefone usado no cadastro.' });
     }
-    const novaPresenca = q.insertPresenca.run(existing.id, dia).changes > 0;
+    const novaPresenca = transacao(() => {
+      q.updateRespostas.run(JSON.stringify({ ...JSON.parse(existing.respostas || '{}'), ...extras.respostas }), existing.id);
+      return q.insertPresenca.run(existing.id, dia, extras.evento).changes > 0;
+    });
     return json(res, 200, { id: existing.id, nome: existing.nome, data_cadastro: dia, jaCadastrado: true, novaPresenca, ...avisoEmail(existing.email) });
   }
   const id = transacao(() => {
-    const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing);
+    const r = q.insert.run(data.nome, data.cpf, data.telefone, data.email, dia, TERMOS_VERSAO, data.marketing, JSON.stringify(extras.respostas));
     const novo = Number(r.lastInsertRowid);
-    q.insertPresenca.run(novo, dia);
+    q.insertPresenca.run(novo, dia, extras.evento);
     return novo;
   });
-  notificarCadastro({ id, ...data, dia });
+  notificarCadastro({ id, ...data, dia, evento: extras.evento, respostas: extras.respostas });
   return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false, ...avisoEmail(data.email) });
 });
 
@@ -1119,9 +1237,11 @@ rota('GET', '/api/admin/participantes', (req, res) => {
   const u = exigirUsuario(req, res);
   if (!u) return;
   json(res, 200, {
-    participantes: q.all.all().map((p) => paraUsuario(u, p)),
-    sorteios: q.draws.all().map((p) => paraUsuario(u, p)),
+    participantes: q.all.all().map((p) => paraUsuario(u, lerParticipante(p))),
+    sorteios: q.draws.all().map((p) => paraUsuario(u, lerParticipante(p))),
     datas: q.datas.all(),
+    eventos: q.eventos.all(),
+    campos: q.campos.all().map(lerCampo),
     hoje: hoje(),
   });
 });
@@ -1129,17 +1249,24 @@ rota('GET', '/api/admin/participantes', (req, res) => {
 rota('GET', '/api/admin/participantes.csv', (req, res) => {
   const u = exigirUsuario(req, res, 'admin');
   if (!u) return;
-  const dia = dataParam(new URL(req.url, 'http://localhost').searchParams.get('data'));
-  const rows = dia ? q.byDate.all(dia) : q.all.all();
-  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'presencas', 'criado_em_utc', 'aceita_ofertas', 'aceite_em_utc', 'versao_aviso'].join(',')];
+  const params = new URL(req.url, 'http://localhost').searchParams;
+  const dia = dataParam(params.get('data'));
+  const evento = String(params.get('evento') || '');
+  const rows = (dia ? q.byDate.all(dia) : evento ? q.byEvento.all(evento) : q.all.all()).map(lerParticipante);
+  const extras = q.campos.all().filter((c) => c.sistema !== 'evento');
+  const lines = [['codigo', 'nome', 'cpf', 'telefone', 'email', 'data_cadastro', 'presencas', ...extras.map((c) => c.rotulo),
+    'criado_em_utc', 'aceita_ofertas', 'aceite_em_utc', 'versao_aviso'].map(csvCell).join(',')];
   for (const r of rows) {
-    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, (r.presencas || '').split(',').filter(Boolean).map(diaBr).join(' e '), r.criado_em,
+    const presencas = r.presencas.map((x) => `${diaBr(x.dia)}${x.evento ? ' - ' + x.evento : ''}`).join(' | ');
+    const resp = extras.map((c) => { const v = r.respostas[c.id]; return v === true ? 'sim' : v ?? ''; });
+    lines.push([codigo(r.id), r.nome, r.cpf, r.telefone, r.email, r.data_cadastro, presencas, ...resp, r.criado_em,
       r.aceita_marketing ? 'sim' : 'nao', r.aceite_em, r.termos_versao].map(csvCell).join(','));
   }
-  registrar(u, 'cadastros.exportados', `${rows.length} cadastros · ${dia ? 'dia ' + diaBr(dia) : 'todas as datas'}`);
+  const filtro = dia ? 'dia ' + diaBr(dia) : evento ? 'evento ' + evento : 'todos os eventos';
+  registrar(u, 'cadastros.exportados', `${rows.length} cadastros · ${filtro}`);
   send(res, 200, '﻿' + lines.join('\r\n'), {
     'Content-Type': 'text/csv; charset=utf-8',
-    'Content-Disposition': `attachment; filename="participantes${dia ? '-' + dia : ''}.csv"`,
+    'Content-Disposition': `attachment; filename="participantes${dia ? '-' + dia : evento ? '-evento' : ''}.csv"`,
   });
 });
 
@@ -1163,7 +1290,7 @@ rota('PUT', '/api/admin/participantes/:id', async (req, res, { id }) => {
     .filter((k) => antes[k] !== data[k])
     .map((k) => `${k}: "${antes[k] ?? ''}" → "${data[k]}"`);
   registrar(u, 'cadastro.editado', `${codigo(id)} · ${mudancas.join('; ') || 'sem mudanças'}`);
-  json(res, 200, paraUsuario(u, q.byId.get(id)));
+  json(res, 200, paraUsuario(u, lerParticipante(q.byId.get(id))));
 });
 
 rota('DELETE', '/api/admin/participantes/:id', (req, res, { id }) => {
@@ -1186,15 +1313,16 @@ rota('POST', '/api/admin/sortear', async (req, res) => {
   const u = exigirUsuario(req, res);
   if (!u) return;
   const body = await readJson(req).catch(() => ({}));
-  // Com "data", só concorrem os cadastros feitos naquele dia (o dia do evento).
+  // Com "data" ou "evento", só concorre quem esteve naquele dia ou evento.
   const dia = dataParam(body.data);
-  const pool = dia ? q.eligibleByDate.all(dia) : q.eligible.all();
+  const evento = typeof body.evento === 'string' ? body.evento : '';
+  const pool = dia ? q.eligibleByDate.all(dia) : evento ? q.eligibleByEvento.all(evento) : q.eligible.all();
   if (!pool.length) return json(res, 409, { erro: 'Não há participantes elegíveis para sortear.' });
   // crypto.randomInt usa um gerador criptograficamente seguro e sem viés.
   const winnerId = pool[crypto.randomInt(pool.length)].id;
   q.insertDraw.run(winnerId);
-  const vencedor = q.byId.get(winnerId);
-  registrar(u, 'sorteio', `${codigo(winnerId)} · ${vencedor.nome} · ${dia ? 'dia ' + diaBr(dia) : 'todas as datas'} · ${pool.length} concorrendo`);
+  const vencedor = lerParticipante(q.byId.get(winnerId));
+  registrar(u, 'sorteio', `${codigo(winnerId)} · ${vencedor.nome} · ${dia ? 'dia ' + diaBr(dia) : evento || 'todos os eventos'} · ${pool.length} concorrendo`);
   json(res, 200, { vencedor: paraUsuario(u, vencedor), elegiveis: pool.length });
 });
 
@@ -1304,7 +1432,7 @@ rota('DELETE', '/api/admin/usuarios/:id', (req, res, { id }) => {
 // --- links / QR Code dinâmico ---
 
 // Endereços que já são páginas do app e não podem virar link.
-const SLUGS_RESERVADOS = new Set(['admin', 'login', 'sorteio', 'brindes', 'api', 'vendor']);
+const SLUGS_RESERVADOS = new Set(['admin', 'login', 'sorteio', 'brindes', 'cadastro', 'api', 'vendor', 'privacidade']);
 
 function normalizeLink(body, { principal }) {
   const slug = principal ? '' : String(body.slug || '').trim().toLowerCase().replace(/^\/+/, '');
@@ -1542,6 +1670,56 @@ rota('POST', '/api/admin/backups/enviar', async (req, res) => {
   }
 });
 
+// --- campos do formulário ---
+
+rota('GET', '/api/admin/campos', (req, res) => {
+  if (!exigirUsuario(req, res, 'admin')) return;
+  json(res, 200, { campos: q.campos.all().map(lerCampo), tipos: TIPOS_CAMPO });
+});
+
+rota('POST', '/api/admin/campos', async (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const d = normalizeCampo(await readJson(req).catch(() => ({})));
+  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
+  const id = Number(q.insertCampo.run(d.rotulo, d.tipo, JSON.stringify(d.opcoes), d.obrigatorio, d.ativo).lastInsertRowid);
+  registrar(u, 'campo.criado', `${d.rotulo} (${TIPOS_CAMPO[d.tipo]})`);
+  json(res, 201, lerCampo(q.campoById.get(id)));
+});
+
+rota('PUT', '/api/admin/campos/:id', async (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const atual = q.campoById.get(id);
+  if (!atual) return json(res, 404, { erro: 'Campo não encontrado.' });
+  const d = normalizeCampo(await readJson(req).catch(() => ({})), atual);
+  if (d.errors.length) return json(res, 422, { erro: d.errors.join(' ') });
+  q.updateCampo.run(d.rotulo, d.tipo, JSON.stringify(d.opcoes), d.obrigatorio, d.ativo, id);
+  registrar(u, 'campo.editado', `${d.rotulo}${d.tipo === 'selecao' ? ' · opções: ' + d.opcoes.join(', ') : ''}${d.ativo ? '' : ' · desativado'}`);
+  json(res, 200, lerCampo(q.campoById.get(id)));
+});
+
+rota('DELETE', '/api/admin/campos/:id', (req, res, { id }) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const atual = q.campoById.get(id);
+  if (!atual) return json(res, 404, { erro: 'Campo não encontrado.' });
+  if (atual.sistema) return json(res, 409, { erro: 'O campo Evento não pode ser excluído. Desative-o se não quiser mostrá-lo.' });
+  q.deleteCampo.run(id);
+  registrar(u, 'campo.excluido', atual.rotulo);
+  json(res, 200, { ok: true });
+});
+
+// Nova ordem dos campos: { ids: [3, 1, 2] }.
+rota('POST', '/api/admin/campos/ordem', async (req, res) => {
+  const u = exigirUsuario(req, res, 'admin');
+  if (!u) return;
+  const ids = (await readJson(req).catch(() => ({}))).ids;
+  if (!Array.isArray(ids)) return json(res, 422, { erro: 'Ordem inválida.' });
+  transacao(() => ids.forEach((cid, i) => q.ordemCampo.run(i, Number(cid))));
+  json(res, 200, { ok: true });
+});
+
 rota('GET', '/api/admin/auditoria', (req, res) => {
   if (!exigirUsuario(req, res, 'admin')) return;
   json(res, 200, q.logs.all());
@@ -1553,7 +1731,9 @@ rota('GET', '/', (req, res) => redirecionarLink(req, res, q.linkBySlug.get('') |
 
 rota('GET', FORMULARIO, (req, res) => serveFile(res, 'index.html'));
 // Endereço antigo do formulário: continua funcionando (links e QR Codes já compartilhados).
-rota('GET', '/sorteio', (req, res) => redirect(res, FORMULARIO + (new URL(req.url, 'http://localhost').search)));
+for (const antigo of ['/sorteio', '/brindes']) {
+  rota('GET', antigo, (req, res) => redirect(res, FORMULARIO + (new URL(req.url, 'http://localhost').search)));
+}
 
 rota('GET', '/privacidade', (req, res) => serveFile(res, 'privacidade.html'));
 
@@ -1650,7 +1830,7 @@ function unificarDuplicados() {
   transacao(() => {
     for (const { cpf, fica } of grupos) {
       for (const { id } of db.prepare('SELECT id FROM participantes WHERE cpf = ? AND id <> ?').all(cpf, fica)) {
-        db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia, criado_em) SELECT ?, dia, criado_em FROM presencas WHERE participante_id = ?').run(fica, id);
+        db.prepare('INSERT OR IGNORE INTO presencas (participante_id, dia, evento, criado_em) SELECT ?, dia, evento, criado_em FROM presencas WHERE participante_id = ?').run(fica, id);
         db.prepare('UPDATE sorteios SET participante_id = ? WHERE participante_id = ?').run(fica, id);
         q.deletePresencasOf.run(id);
         q.delete.run(id);

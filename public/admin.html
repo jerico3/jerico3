@@ -183,6 +183,7 @@
         <button role="tab" data-aba="sorteio" aria-selected="true">Sorteio</button>
         <button role="tab" data-aba="cadastros">Cadastros</button>
         <button role="tab" data-aba="links">Links e QR Code</button>
+        <button role="tab" data-aba="formulario" class="so-admin" hidden>Formulário</button>
         <button role="tab" data-aba="usuarios" class="so-admin" hidden>Usuários</button>
         <button role="tab" data-aba="atividade" class="so-admin" hidden>Atividade</button>
         <button role="tab" data-aba="backups" class="so-admin" hidden>Backups</button>
@@ -192,9 +193,9 @@
 
   <main>
     <div class="barra-dia" id="barra-dia">
-      <label for="dia">Evento</label>
+      <label for="dia">Mostrar</label>
       <select id="dia"></select>
-      <span class="dica">Cada pessoa tem um único cadastro; escolha um evento para ver (e sortear) só quem esteve nele.</span>
+      <span class="dica">Cada pessoa tem um único cadastro; escolha um evento ou um dia para ver (e sortear) só quem esteve nele.</span>
     </div>
 
     <!-- Sorteio -->
@@ -325,6 +326,34 @@
       </div>
     </section>
 
+    <!-- Formulário -->
+    <section data-painel="formulario" hidden>
+      <div class="card">
+        <div class="cab">
+          <h2>Campos do formulário</h2>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <a class="btn" href="/cadastro" target="_blank" rel="noopener">Ver formulário</a>
+            <button class="btn primario" id="novo-campo">Novo campo</button>
+          </div>
+        </div>
+        <p class="muted" style="margin-top:-6px">
+          Os campos aparecem no formulário nesta ordem, depois de nome, telefone, CPF e e-mail. As mudanças valem na hora
+          para quem abrir o formulário. Em <strong>Evento</strong>, a resposta fica registrada na presença: quem vai a
+          outro evento escolhe de novo e o painel mostra todos os eventos da pessoa.
+        </p>
+        <div class="tabela">
+          <table>
+            <thead><tr><th style="width:84px">Ordem</th><th>Campo</th><th>Tipo</th><th>Opções</th><th></th></tr></thead>
+            <tbody id="campos"></tbody>
+          </table>
+        </div>
+        <p class="muted" style="font-size:.8rem;margin:12px 0 0">
+          Nome, telefone, CPF e e-mail são fixos: o CPF identifica a pessoa (um cadastro por CPF), o telefone confirma
+          quem volta a outro evento e o e-mail recebe o código.
+        </p>
+      </div>
+    </section>
+
     <!-- Usuários -->
     <section data-painel="usuarios" hidden>
       <div class="card">
@@ -405,6 +434,32 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-campo">
+    <form method="dialog" id="form-campo" novalidate>
+      <h3 id="dlg-campo-titulo">Novo campo</h3>
+      <div class="erro-dlg"></div>
+      <div class="campo"><label for="f-rotulo">Nome do campo (aparece no formulário)</label><input type="text" id="f-rotulo" maxlength="80" required placeholder="Ex.: Como conheceu a importadora?"></div>
+      <div class="campo" id="f-tipo-campo">
+        <label for="f-tipo">Tipo</label>
+        <select id="f-tipo">
+          <option value="selecao">Caixa de seleção (escolher uma opção)</option>
+          <option value="texto">Texto livre</option>
+          <option value="caixa">Caixa de marcar (sim/não)</option>
+        </select>
+      </div>
+      <div class="campo" id="f-opcoes-campo">
+        <label for="f-opcoes">Opções (uma por linha)</label>
+        <textarea id="f-opcoes" rows="5" style="width:100%;font:inherit;padding:10px 12px;border:1px solid var(--border);border-radius:10px"></textarea>
+      </div>
+      <label class="check"><input type="checkbox" id="f-obrigatorio"> Obrigatório</label>
+      <label class="check"><input type="checkbox" id="f-ativo"> Mostrar no formulário</label>
+      <div class="rodape-dlg">
+        <button type="button" class="btn" data-fechar>Cancelar</button>
+        <button type="submit" class="btn primario">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="dlg-usuario">
     <form method="dialog" id="form-usuario" novalidate>
       <h3 id="dlg-usuario-titulo">Novo usuário</h3>
@@ -453,7 +508,7 @@
       <div class="campo">
         <label for="l-tipo">Leva para</label>
         <select id="l-tipo">
-          <option value="/brindes">Formulário de cadastro (/brindes)</option>
+          <option value="/cadastro">Formulário de cadastro (/cadastro)</option>
           <option value="url">Outro endereço (Instagram, site, WhatsApp…)</option>
         </select>
       </div>
@@ -502,7 +557,7 @@
     let prefixo = 'VW-';
     let eu = null;
     let estado = { participantes: [], sorteios: [], datas: [], hoje: '' };
-    let diaEscolhido = null; // null = ainda não escolhido; '' = todas as datas
+    let filtro = ''; // '' = todos; 'e:<evento>' = quem esteve no evento; 'd:<dia>' = quem esteve no dia
     let abaAtual = 'sorteio';
 
     const fmtId = (id) => prefixo + String(id).padStart(4, '0');
@@ -511,8 +566,14 @@
     const fmtCpf = (c) => c ? c.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4') : '—';
     const fmtData = (s) => new Date(s.replace(' ', 'T') + 'Z').toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
     const fmtDia = (d) => d.split('-').reverse().join('/');
-    const presencas = (p) => (p.presencas || p.data_cadastro || '').split(',').filter(Boolean);
-    const doDia = (p) => !diaEscolhido || presencas(p).includes(diaEscolhido);
+    const presencas = (p) => p.presencas || [];
+    const filtroAtual = () => filtro.startsWith('e:') ? { evento: filtro.slice(2) } : filtro.startsWith('d:') ? { data: filtro.slice(2) } : null;
+    const doDia = (p) => {
+      const f = filtroAtual();
+      return !f || presencas(p).some((x) => (f.data ? x.dia === f.data : x.evento === f.evento));
+    };
+    const nomeFiltro = () => { const f = filtroAtual(); return !f ? '' : f.evento || `dia ${fmtDia(f.data)}`; };
+    const fmtPresenca = (x) => `${x.evento || 'Sem evento'} (${fmtDia(x.dia).slice(0, 5)})`;
     const ehAdmin = () => eu && eu.papel === 'admin';
 
     function el(tag, text, cls) {
@@ -587,6 +648,7 @@
       if (aba === 'atividade') carregarAtividade();
       if (aba === 'links') carregarLinks();
       if (aba === 'backups') carregarBackups();
+      if (aba === 'formulario') carregarCampos();
       try { sessionStorage.setItem('aba', aba); } catch {}
     }
     document.querySelectorAll('nav [data-aba]').forEach((b) => b.onclick = () => abrirAba(b.dataset.aba));
@@ -595,19 +657,20 @@
 
     async function carregar() {
       estado = await api('GET', '/api/admin/participantes');
-      // Começa mostrando todos os eventos: o cadastro é único e vale para todos.
-      if (diaEscolhido === null) diaEscolhido = '';
       renderDias();
       renderTudo();
     }
 
     function renderDias() {
-      const rotulo = (data, total) => `Evento de ${fmtDia(data)}${data === estado.hoje ? ' (hoje)' : ''} — ${total} presente${total === 1 ? '' : 's'}`;
-      const opcoes = estado.datas.map((d) => [d.data, rotulo(d.data, d.total)]);
-      if (diaEscolhido && !estado.datas.some((d) => d.data === diaEscolhido)) opcoes.unshift([diaEscolhido, rotulo(diaEscolhido, 0)]);
-      opcoes.unshift(['', `Todos os eventos — ${estado.participantes.length} cadastro${estado.participantes.length === 1 ? '' : 's'}`]);
-      $('dia').replaceChildren(...opcoes.map(([v, t]) => { const o = el('option', t); o.value = v; return o; }));
-      $('dia').value = diaEscolhido;
+      const n = (total, palavra) => `${total} ${palavra}${total === 1 ? '' : 's'}`;
+      const opcao = (v, t) => { const o = el('option', t); o.value = v; return o; };
+      const grupo = (rotulo, itens) => { const g = document.createElement('optgroup'); g.label = rotulo; g.append(...itens); return g; };
+      const itens = [opcao('', `Todos — ${n(estado.participantes.length, 'cadastro')}`)];
+      if (estado.eventos.length) itens.push(grupo('Por evento', estado.eventos.map((e) => opcao(`e:${e.evento}`, `${e.evento} — ${n(e.total, 'presente')}`))));
+      if (estado.datas.length) itens.push(grupo('Por dia', estado.datas.map((d) => opcao(`d:${d.data}`, `${fmtDia(d.data)}${d.data === estado.hoje ? ' (hoje)' : ''} — ${n(d.total, 'presente')}`))));
+      $('dia').replaceChildren(...itens);
+      $('dia').value = filtro;
+      if ($('dia').value !== filtro) filtro = $('dia').value = '';
     }
 
     function renderTudo() {
@@ -616,13 +679,14 @@
       const sorteadosDia = estado.sorteios.filter(doDia);
       const elegiveis = doEvento.filter((p) => !sorteados.has(p.id)).length;
       $('st-total').textContent = doEvento.length;
-      $('st-total-rotulo').textContent = diaEscolhido ? 'Presentes no evento' : 'Cadastros';
+      $('st-total-rotulo').textContent = filtro ? 'Presentes' : 'Cadastros';
       $('st-elegiveis').textContent = elegiveis;
       $('st-sorteados').textContent = sorteadosDia.length;
       $('sortear').disabled = elegiveis === 0;
-      $('sortear').textContent = diaEscolhido ? `Sortear entre os presentes em ${fmtDia(diaEscolhido)}` : 'Sortear entre todos os cadastros';
-      $('csv').href = '/api/admin/participantes.csv' + (diaEscolhido ? `?data=${diaEscolhido}` : '');
-      $('titulo-lista').textContent = diaEscolhido ? `Presentes no evento de ${fmtDia(diaEscolhido)}` : 'Todos os cadastros';
+      const f = filtroAtual();
+      $('sortear').textContent = f ? `Sortear entre os presentes: ${nomeFiltro()}` : 'Sortear entre todos os cadastros';
+      $('csv').href = '/api/admin/participantes.csv' + (f ? '?' + new URLSearchParams(f) : '');
+      $('titulo-lista').textContent = f ? `Presentes: ${nomeFiltro()}` : 'Todos os cadastros';
 
       $('historico').replaceChildren(...sorteadosDia.map((s) => {
         const li = el('li');
@@ -652,12 +716,12 @@
         acoes.append(botao('Editar', '', () => editarCadastro(p)));
         if (ehAdmin()) acoes.append(botao('Excluir', 'perigo', () => excluirCadastro(p)));
         tr.append(el('td', fmtId(p.id), 'codigo'), nome, el('td', fmtCpf(p.cpf)), el('td', fmtTel(p.telefone)),
-          el('td', p.email || '—'), el('td', presencas(p).map((d) => fmtDia(d).slice(0, 5)).join(' · ')), acoes);
+          el('td', p.email || '—'), el('td', presencas(p).map(fmtPresenca).join(' · ')), acoes);
         return tr;
       }));
     }
 
-    $('dia').onchange = () => { diaEscolhido = $('dia').value; $('palco').hidden = true; renderTudo(); };
+    $('dia').onchange = () => { filtro = $('dia').value; $('palco').hidden = true; renderTudo(); };
     $('busca').oninput = renderLista;
 
     // ---------- sorteio ----------
@@ -667,10 +731,10 @@
       const sorteados = new Set(estado.sorteios.map((s) => s.id));
       const elegiveis = estado.participantes.filter(doDia).filter((p) => !sorteados.has(p.id));
       const r = await ShowSorteio.rodar({
-        subtitulo: diaEscolhido ? `Evento de ${fmtDia(diaEscolhido)} · ${elegiveis.length} concorrendo` : `Todos os eventos · ${elegiveis.length} concorrendo`,
+        subtitulo: `${nomeFiltro() || 'Todos os eventos'} · ${elegiveis.length} concorrendo`,
         codigos: elegiveis.map((p) => fmtId(p.id)),
         sortear: async () => {
-          const { vencedor: v } = await api('POST', '/api/admin/sortear', { data: diaEscolhido || null });
+          const { vencedor: v } = await api('POST', '/api/admin/sortear', filtroAtual() || {});
           return { id: v.id, codigo: fmtId(v.id), nome: v.nome, info: [`CPF ${fmtCpf(v.cpf)}`, fmtTel(v.telefone), v.email].filter(Boolean).join(' · ') };
         },
         podeOutro: () => elegiveis.length > 1,
@@ -713,7 +777,9 @@
       $('c-cpf').disabled = !ehAdmin();
       $('c-cpf-ajuda').hidden = ehAdmin();
       $('c-email').value = p.email || '';
-      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)}. Presença nos eventos de ${presencas(p).map(fmtDia).join(' e ')}. `
+      const respostas = estado.campos.filter((c) => c.sistema !== 'evento' && p.respostas?.[c.id] != null)
+        .map((c) => `${c.rotulo}: ${p.respostas[c.id] === true ? 'sim' : p.respostas[c.id]}. `).join('');
+      $('c-dia').textContent = `Cadastro feito em ${fmtData(p.criado_em)}. Presença: ${presencas(p).map(fmtPresenca).join(', ')}. ` + respostas
         + (p.aceite_em ? `Aceitou o Aviso de Privacidade (versão ${fmtDia(p.termos_versao || '')}) em ${fmtData(p.aceite_em)}. ` : '')
         + `Aceita ofertas: ${p.aceita_marketing ? 'sim' : 'não'}.`;
       d.showModal();
@@ -874,6 +940,9 @@
       'senha.redefinida': 'Criou nova senha pelo e-mail',
       'retencao': 'Limpeza automática (retenção)',
       'cadastros.unificados': 'Juntou cadastros do mesmo CPF',
+      'campo.criado': 'Criou campo do formulário',
+      'campo.editado': 'Editou campo do formulário',
+      'campo.excluido': 'Excluiu campo do formulário',
       'backup.criado': 'Fez backup',
       'backup.baixado': 'Baixou backup',
       'backup.restaurado': 'Restaurou backup',
@@ -898,6 +967,92 @@
       }));
     }
     $('atualizar-atividade').onclick = carregarAtividade;
+
+    // ---------- campos do formulário ----------
+
+    const NOMES_TIPO = { texto: 'Texto livre', selecao: 'Caixa de seleção', caixa: 'Sim/não' };
+    let campos = [];
+
+    async function carregarCampos() {
+      try { campos = (await api('GET', '/api/admin/campos')).campos; } catch (e) { return toast(e.message, true); }
+      const tbody = $('campos');
+      if (!campos.length) return linhaVazia(tbody, 5, 'Nenhum campo extra.');
+      tbody.replaceChildren(...campos.map((c, i) => {
+        const tr = el('tr');
+        const ordem = el('td', null, 'acoes');
+        const sobe = botao('↑', '', () => moverCampo(i, -1));
+        const desce = botao('↓', '', () => moverCampo(i, 1));
+        sobe.disabled = i === 0;
+        desce.disabled = i === campos.length - 1;
+        sobe.setAttribute('aria-label', 'Subir');
+        desce.setAttribute('aria-label', 'Descer');
+        ordem.append(sobe, desce);
+        const nome = el('td', c.rotulo);
+        if (c.obrigatorio) nome.append(el('span', 'obrigatório', 'tag operador'));
+        if (!c.ativo) nome.append(el('span', 'oculto', 'tag perfil inativo'));
+        const acoes = el('td', null, 'acoes');
+        acoes.append(botao('Editar', '', () => abrirCampo(c)));
+        if (!c.sistema) acoes.append(botao('Excluir', 'perigo', () => excluirCampo(c)));
+        tr.append(ordem, nome, el('td', NOMES_TIPO[c.tipo]), el('td', c.opcoes.join(' · ') || '—', 'quebra'), acoes);
+        return tr;
+      }));
+    }
+
+    async function moverCampo(i, delta) {
+      const ids = campos.map((c) => c.id);
+      [ids[i], ids[i + delta]] = [ids[i + delta], ids[i]];
+      try { await api('POST', '/api/admin/campos/ordem', { ids }); } catch (e) { toast(e.message, true); }
+      carregarCampos();
+    }
+
+    let campoEditando = null;
+    function abrirCampo(c = null) {
+      campoEditando = c;
+      const d = $('dlg-campo');
+      erroDialogo(d, '');
+      $('dlg-campo-titulo').textContent = c ? `Editar "${c.rotulo}"` : 'Novo campo';
+      $('f-rotulo').value = c ? c.rotulo : '';
+      $('f-tipo').value = c ? c.tipo : 'selecao';
+      $('f-tipo-campo').hidden = !!c?.sistema; // o campo Evento é sempre uma caixa de seleção
+      $('f-opcoes').value = c ? c.opcoes.join('\n') : '';
+      $('f-obrigatorio').checked = c ? !!c.obrigatorio : false;
+      $('f-ativo').checked = c ? !!c.ativo : true;
+      sincTipo();
+      d.showModal();
+    }
+    const sincTipo = () => { $('f-opcoes-campo').hidden = $('f-tipo').value !== 'selecao'; };
+    $('f-tipo').onchange = sincTipo;
+    $('novo-campo').onclick = () => abrirCampo();
+
+    $('form-campo').onsubmit = async (ev) => {
+      ev.preventDefault();
+      const d = $('dlg-campo');
+      const body = {
+        rotulo: $('f-rotulo').value,
+        tipo: $('f-tipo').value,
+        opcoes: $('f-opcoes').value.split('\n'),
+        obrigatorio: $('f-obrigatorio').checked,
+        ativo: $('f-ativo').checked,
+      };
+      try {
+        if (campoEditando) await api('PUT', `/api/admin/campos/${campoEditando.id}`, body);
+        else await api('POST', '/api/admin/campos', body);
+        d.close();
+        toast(campoEditando ? 'Campo atualizado.' : 'Campo criado.');
+        carregarCampos();
+      } catch (e) { erroDialogo(d, e.message); }
+    };
+
+    async function excluirCampo(c) {
+      const ok = await confirmar(`Excluir o campo "${c.rotulo}"?`,
+        'Ele sai do formulário e do CSV. Se só quiser escondê-lo por um tempo, edite e desmarque "Mostrar no formulário".', 'Excluir');
+      if (!ok) return;
+      try {
+        await api('DELETE', `/api/admin/campos/${c.id}`);
+        toast('Campo excluído.');
+        carregarCampos();
+      } catch (e) { toast(e.message, true); }
+    }
 
     // ---------- backups ----------
 
@@ -999,7 +1154,7 @@
     let linkDoQr = null;
     const baseUrl = () => ($('base-url').value.trim() || location.origin).replace(/\/+$/, '');
     const urlDoLink = (l) => `${baseUrl()}/${l.slug}`;
-    const nomeDestino = (d) => d === '/brindes' ? 'Formulário de cadastro' : d;
+    const nomeDestino = (d) => d === '/cadastro' ? 'Formulário de cadastro' : d;
 
     async function carregarLinks() {
       try { links = await api('GET', '/api/admin/links'); } catch (e) { return toast(e.message, true); }
@@ -1176,8 +1331,8 @@
       $('l-slug-campo').hidden = principal;
       $('l-prefixo').textContent = baseUrl().replace(/^https?:\/\//, '') + '/';
       $('l-slug').value = l ? l.slug : '';
-      const interno = !l || l.destino === '/brindes';
-      $('l-tipo').value = interno ? '/brindes' : 'url';
+      const interno = !l || l.destino === '/cadastro';
+      $('l-tipo').value = interno ? '/cadastro' : 'url';
       $('l-url').value = interno ? '' : l.destino;
       $('l-url-campo').hidden = interno;
       $('l-utm').checked = l ? !!l.utm : true;
@@ -1192,7 +1347,7 @@
       const d = $('dlg-link');
       const body = {
         slug: $('l-slug').value,
-        destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/brindes',
+        destino: $('l-tipo').value === 'url' ? $('l-url').value.trim() : '/cadastro',
         descricao: $('l-desc').value,
         utm: $('l-utm').checked,
       };
@@ -1242,7 +1397,7 @@
       let aba = 'sorteio';
       try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
       if (aba === 'qr') aba = 'links';
-      if (!ehAdmin() && ['usuarios', 'atividade', 'backups'].includes(aba)) aba = 'sorteio';
+      if (!ehAdmin() && ['usuarios', 'atividade', 'backups', 'formulario'].includes(aba)) aba = 'sorteio';
       abrirAba(aba);
       await carregar();
       // Atualiza os números sozinho durante o evento (sem atrapalhar quem está editando).
