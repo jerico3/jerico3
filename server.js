@@ -470,8 +470,10 @@ function send(res, status, body, headers = {}) {
   res.end(body);
 }
 
+// Respostas da API nunca ficam em cache (nem no navegador nem na CDN da hospedagem): o formulário
+// precisa sempre da lista de eventos atual.
 function json(res, status, data, headers = {}) {
-  send(res, status, JSON.stringify(data), { 'Content-Type': 'application/json; charset=utf-8', ...headers });
+  send(res, status, JSON.stringify(data), { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...headers });
 }
 
 function redirect(res, location) {
@@ -545,7 +547,19 @@ function criarLimitador(max, janelaMs) {
     contar: (chave) => tentativas.set(chave, [...recentes(chave), Date.now()]),
   };
 }
-const limiteCadastro = criarLimitador(20, 10 * 60 * 1000);
+// Conta só as tentativas recusadas: no evento muita gente usa a mesma rede (mesmo IP), e cadastros
+// que deram certo não podem travar os próximos.
+const limiteCadastro = criarLimitador(30, 10 * 60 * 1000);
+
+// Diagnóstico desde que o app iniciou (aparece no painel): cadastros concluídos, tentativas
+// recusadas por motivo e erros de JavaScript que aconteceram no formulário dos participantes.
+const diagnostico = { desde: new Date().toISOString(), concluidos: 0, recusados: {}, errosFormulario: [] };
+function recusar(res, req, status, motivo, dados) {
+  diagnostico.recusados[motivo] = (diagnostico.recusados[motivo] || 0) + 1;
+  limiteCadastro.contar(clientIp(req));
+  console.warn(`Cadastro recusado (${status}): ${motivo}`);
+  json(res, status, dados);
+}
 // No login só contam as tentativas que falharam (a equipe costuma estar na mesma rede do evento).
 const limiteLogin = criarLimitador(10, 15 * 60 * 1000);
 
@@ -995,23 +1009,27 @@ const avisoEmail = (email) => (mailer.configurado() && email
   : {});
 
 rota('POST', '/api/cadastro', async (req, res) => {
-  limiteCadastro.contar(clientIp(req));
   if (limiteCadastro.excedeu(clientIp(req))) {
+    diagnostico.recusados['muitas tentativas'] = (diagnostico.recusados['muitas tentativas'] || 0) + 1;
     return json(res, 429, { erro: 'Muitas tentativas. Aguarde alguns minutos.' });
   }
   let body;
   try {
     body = await readJson(req);
   } catch (e) {
-    return json(res, 400, { erro: e.message });
+    return recusar(res, req, 400, 'pedido inválido', { erro: e.message });
   }
   // Campo "isca" invisível: bots costumam preenchê-lo.
-  if (body.site) return json(res, 400, { erro: 'Cadastro inválido.' });
+  if (body.site) return recusar(res, req, 400, 'robô (campo isca)', { erro: 'Cadastro inválido.' });
 
   const data = normalize(body);
   const extras = normalizeRespostas(body);
   const erros = [...data.errors, ...extras.errors];
-  if (erros.length) return json(res, 422, { erro: erros.join(' '), campos: { ...data.porCampo, ...extras.porCampo } });
+  if (erros.length) {
+    const campos = { ...data.porCampo, ...extras.porCampo };
+    const nomes = Object.keys(campos).map((k) => (k.startsWith('campo-') ? 'evento' : k)).join(', ');
+    return recusar(res, req, 422, `dados inválidos (${nomes})`, { erro: erros.join(' '), campos });
+  }
 
   // Um cadastro por CPF, válido em todos os eventos. Quem volta em outro evento envia o formulário de
   // novo e ganha a presença daquele dia e evento, com o mesmo código.
@@ -1021,7 +1039,7 @@ rota('POST', '/api/cadastro', async (req, res) => {
     // Só devolve o código se o telefone conferir: sem isso, qualquer um que digitasse o CPF de
     // outra pessoa descobriria o nome e o código dela.
     if (existing.telefone !== data.telefone) {
-      return json(res, 409, {
+      return recusar(res, req, 409, 'CPF já cadastrado com outro telefone', {
         erro: 'Este CPF já está cadastrado com outro telefone.',
         campos: { telefone: 'Este CPF já está cadastrado com outro telefone. Se foi você, informe o mesmo telefone do cadastro.' },
       });
@@ -1038,8 +1056,26 @@ rota('POST', '/api/cadastro', async (req, res) => {
     q.insertPresenca.run(novo, dia, extras.evento);
     return novo;
   });
+  diagnostico.concluidos++;
   notificarCadastro({ id, ...data, dia, evento: extras.evento, respostas: extras.respostas });
   return json(res, 201, { id, nome: data.nome, data_cadastro: dia, jaCadastrado: false, ...avisoEmail(data.email) });
+});
+
+// Erros de JavaScript no formulário dos participantes (só a mensagem e o navegador, sem dados pessoais).
+const limiteErros = criarLimitador(10, 10 * 60 * 1000);
+rota('POST', '/api/erro-formulario', async (req, res) => {
+  const ip = clientIp(req);
+  if (limiteErros.excedeu(ip)) return json(res, 429, { ok: false });
+  limiteErros.contar(ip);
+  const body = await readJson(req, 2000).catch(() => ({}));
+  const erro = {
+    quando: new Date().toISOString(),
+    mensagem: String(body.mensagem || '').slice(0, 300),
+    navegador: `${dispositivo(req.headers['user-agent'] || '')} · ${navegador(req.headers['user-agent'] || '')}`,
+  };
+  diagnostico.errosFormulario = [erro, ...diagnostico.errosFormulario].slice(0, 20);
+  console.warn(`Erro no formulário (${erro.navegador}): ${erro.mensagem}`);
+  json(res, 200, { ok: true });
 });
 
 // --- login ---
@@ -1234,6 +1270,7 @@ rota('GET', '/api/admin/participantes', (req, res) => {
     datas: q.datas.all(),
     eventos: q.eventos.all(),
     campos: q.campos.all().map(lerCampo),
+    diagnostico,
     hoje: hoje(),
   });
 });
@@ -1748,7 +1785,10 @@ function serveFile(res, rel) {
   if (!file.startsWith(PUBLIC_DIR + path.sep)) return send(res, 404, 'Não encontrado');
   fs.readFile(file, (err, buf) => {
     if (err) return send(res, 404, 'Não encontrado', { 'Content-Type': 'text/plain; charset=utf-8' });
-    send(res, 200, buf, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    const ext = path.extname(file);
+    // Páginas sempre conferem com o servidor antes de usar a cópia guardada (evita formulário antigo).
+    const cache = ext === '.html' ? 'no-cache' : 'public, max-age=3600';
+    send(res, 200, buf, { 'Content-Type': MIME[ext] || 'application/octet-stream', 'Cache-Control': cache });
   });
 }
 

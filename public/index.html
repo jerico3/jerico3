@@ -251,11 +251,15 @@
     // Campos extras configurados no painel (aba Formulário), como o "Evento".
     let camposExtras = [];
     function montarCampos(campos) {
+      // Guarda o que a pessoa já escolheu, para não perder ao recarregar a lista de campos.
+      const anteriores = Object.fromEntries(camposExtras.map((c) => [c.id, $(`campo-${c.id}`)]).filter(([, el]) => el)
+        .map(([id, el]) => [id, el.type === 'checkbox' ? el.checked : el.value]));
+      document.querySelectorAll('#campos .extra').forEach((el) => el.remove());
       camposExtras = campos || [];
       const grade = $('campos');
       for (const c of camposExtras) {
         const box = document.createElement('div');
-        box.className = 'full';
+        box.className = 'full extra';
         const id = `campo-${c.id}`;
         const obrig = c.obrigatorio ? '<span class="obrig" aria-hidden="true">*</span> ' : '';
         if (c.tipo === 'caixa') {
@@ -282,8 +286,30 @@
           box.append(campo);
         }
         grade.append(box);
+        const campo = $(`campo-${c.id}`);
+        const antes = anteriores[c.id];
+        if (antes !== undefined) {
+          if (campo.type === 'checkbox') campo.checked = antes;
+          else if (campo.tagName !== 'SELECT' || c.opcoes.includes(antes)) campo.value = antes;
+        }
       }
     }
+
+    // Busca as configurações do formulário sempre do servidor (lista de eventos atual).
+    async function carregarConfig() {
+      const cfg = await fetch('/api/config', { cache: 'no-store' }).then((r) => r.json());
+      montarCampos(cfg.campos);
+      return cfg;
+    }
+
+    // Erros de JavaScript vão para o painel (Diagnóstico), para descobrir problemas em celulares específicos.
+    function reportarErro(mensagem) {
+      try {
+        fetch('/api/erro-formulario', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mensagem: String(mensagem).slice(0, 300) }), keepalive: true }).catch(() => {});
+      } catch {}
+    }
+    addEventListener('error', (e) => reportarErro(`${e.message} (${(e.filename || '').split('/').pop()}:${e.lineno})`));
+    addEventListener('unhandledrejection', (e) => reportarErro(e.reason?.message || e.reason));
     // Lê as respostas dos campos extras e devolve os erros por campo ({ 'campo-3': 'Selecione o evento.' }).
     function lerRespostas() {
       const respostas = {};
@@ -327,7 +353,7 @@
     }
     function mostrarErros(erros) {
       document.querySelectorAll('#form .invalido input, #form .invalido select').forEach(limparErro);
-      const ids = Object.keys(erros);
+      const ids = Object.keys(erros).filter((id) => $(id));
       ids.forEach((id) => marcarErro(id, erros[id]));
       if (ids.length) {
         showError(ids.length === 1 ? 'Confira o campo destacado.' : `Confira os ${ids.length} campos destacados.`, false);
@@ -424,13 +450,24 @@
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
+          // O servidor pediu um campo que esta página não tem (ela estava desatualizada): recarrega os
+          // campos e pede para conferir, em vez de travar.
+          if (data.campos && Object.keys(data.campos).some((id) => !$(id))) {
+            await carregarConfig().catch(() => {});
+            const faltando = Object.fromEntries(Object.entries(data.campos).filter(([id]) => $(id)));
+            mostrarErros(faltando);
+            return showError('O formulário foi atualizado. Confira os campos destacados e toque em Enviar de novo.');
+          }
           if (data.campos && mostrarErros(data.campos)) return;
           throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
         }
         storage('set', data);
         mostrarCodigo(data);
       } catch (err) {
-        showError(err.message === 'Failed to fetch' ? 'Sem conexão. Verifique sua internet e tente novamente.' : err.message);
+        const semRede = err instanceof TypeError && /fetch|network|load/i.test(err.message);
+        if (!semRede && err instanceof TypeError) reportarErro(err.message);
+        showError(semRede ? 'Sem conexão. Verifique sua internet e tente novamente.'
+          : err instanceof TypeError ? 'Algo deu errado. Recarregue a página e tente de novo.' : err.message);
       } finally {
         btn.disabled = false;
         btn.textContent = 'Enviar';
@@ -445,7 +482,7 @@
       else if (salvo) storage('del');
     }
 
-    fetch('/api/config').then((r) => r.json()).then((cfg) => {
+    carregarConfig().then((cfg) => {
       if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
       if (cfg.hoje) hoje = cfg.hoje;
       if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
@@ -454,7 +491,6 @@
         $('marca-comprovante').textContent = cfg.marca;
         document.querySelector('.insta-marca').textContent = cfg.marca;
       }
-      montarCampos(cfg.campos);
       if (cfg.instagram) {
         $('insta').href = cfg.instagram.url;
         $('insta-arroba').textContent = cfg.instagram.arroba;

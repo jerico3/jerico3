@@ -84,6 +84,9 @@
     .novo-evento { display: flex; gap: 8px; }
     .novo-evento input { flex: 1; }
     @media (max-width: 560px) { .lista-eventos li { grid-template-columns: minmax(0, 1fr) auto auto auto; } .lista-eventos li > span { display: none; } }
+    .diagnostico summary { cursor: pointer; }
+    .diagnostico.alerta { border-color: #f3c4c4; background: #fff8f8; }
+    .diagnostico ul { margin: 6px 0 0; padding-left: 18px; }
     .palco { text-align: center; padding: 28px 16px; margin-top: 16px; border-radius: 14px; background: var(--navy); color: #fff; }
     .palco small { text-transform: uppercase; letter-spacing: .1em; font-weight: 700; opacity: .7; font-size: .75rem; }
     .palco .num { font-size: clamp(2.6rem, 8vw, 4rem); font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
@@ -236,6 +239,10 @@
 
     <!-- Cadastros -->
     <section data-painel="cadastros" hidden>
+      <details class="card diagnostico" id="diagnostico" style="margin-bottom:16px">
+        <summary><strong>Tentativas de cadastro</strong> <span id="diag-resumo" class="muted"></span></summary>
+        <div id="diag-detalhe" style="margin-top:10px;font-size:.88rem"></div>
+      </details>
       <div class="card">
         <div class="cab">
           <h2 id="titulo-lista">Cadastros</h2>
@@ -665,6 +672,8 @@
       $('csv').href = '/api/admin/participantes.csv' + (f ? '?' + new URLSearchParams(f) : '');
       $('titulo-lista').textContent = f ? `Presentes: ${nomeFiltro()}` : 'Todos os cadastros';
 
+      renderDiagnostico();
+
       $('historico').replaceChildren(...sorteadosDia.map((s) => {
         const li = el('li');
         li.append(el('strong', fmtId(s.id)), document.createTextNode(` — ${s.nome}`), el('span', `Sorteado em ${fmtData(s.sorteado_em)}`, 'quando'));
@@ -672,6 +681,32 @@
       }));
       $('historico-vazio').hidden = sorteadosDia.length > 0;
       renderLista();
+    }
+
+    // Desde o último início do app: cadastros concluídos, tentativas recusadas e erros no formulário.
+    function renderDiagnostico() {
+      const d = estado.diagnostico;
+      if (!d) return;
+      const recusados = Object.entries(d.recusados).sort((a, b) => b[1] - a[1]);
+      const totalRecusados = recusados.reduce((s, [, n]) => s + n, 0);
+      const desde = new Date(d.desde).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+      $('diag-resumo').textContent = `— desde ${desde}: ${d.concluidos} concluído${d.concluidos === 1 ? '' : 's'}, `
+        + `${totalRecusados} recusada${totalRecusados === 1 ? '' : 's'}`
+        + (d.errosFormulario.length ? `, ${d.errosFormulario.length} erro${d.errosFormulario.length === 1 ? '' : 's'} no formulário` : '');
+      $('diagnostico').classList.toggle('alerta', d.errosFormulario.length > 0 || totalRecusados > d.concluidos);
+      const partes = [];
+      partes.push(el('p', 'Contagem desde a última vez que o app iniciou (reiniciar ou publicar zera). Tentativas recusadas são envios que o servidor não aceitou; o motivo ajuda a achar problemas no formulário.', 'muted'));
+      if (recusados.length) {
+        const ul = el('ul');
+        ul.append(...recusados.map(([motivo, n]) => el('li', `${motivo}: ${n}`)));
+        partes.push(el('strong', 'Recusadas por motivo'), ul);
+      }
+      if (d.errosFormulario.length) {
+        const ul = el('ul');
+        ul.append(...d.errosFormulario.map((e) => el('li', `${new Date(e.quando).toLocaleString('pt-BR', { timeStyle: 'short', dateStyle: 'short' })} · ${e.navegador} · ${e.mensagem}`)));
+        partes.push(el('strong', 'Erros no formulário (celular dos participantes)'), ul);
+      }
+      $('diag-detalhe').replaceChildren(...partes);
     }
 
     function renderLista() {

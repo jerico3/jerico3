@@ -89,7 +89,8 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
   versões anteriores (mesmo CPF em dias diferentes) são juntados no mais antigo ao iniciar.
 - O código fica salvo no navegador até o fim do dia: reabrir a página ou escanear o QR de novo no
   mesmo dia mostra o código.
-- Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas por IP.
+- Proteções básicas contra abuso: campo isca anti-bot e limite de tentativas recusadas por IP (cadastros
+  que deram certo não contam, porque no evento muita gente usa a mesma rede).
 - Se alguém tentar um CPF já cadastrado no dia com outro telefone, o sistema não revela o nome nem o
   código de quem se cadastrou (evita descobrir dados de terceiros pelo CPF).
 
@@ -117,6 +118,14 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - **Restaurar** um backup da lista ou **de um arquivo** `.db` baixado antes. Antes de restaurar, o
   sistema faz uma cópia do estado atual ("antes de restaurar"), então dá para desfazer. A numeração
   dos códigos continua de onde o backup parou, o histórico de atividade é somado e todos entram de novo.
+
+**Diagnóstico** (aba Cadastros → "Tentativas de cadastro")
+- Desde o último início do app: cadastros concluídos, envios recusados pelo servidor (com o motivo) e
+  erros de JavaScript que aconteceram no formulário no celular dos participantes. Os mesmos avisos
+  aparecem no log do app (`Cadastro recusado` / `Erro no formulário`).
+- Páginas são servidas com `Cache-Control: no-cache` e a API com `no-store`, para ninguém ficar com
+  uma cópia antiga do formulário. Se mesmo assim o formulário estiver desatualizado, ele recarrega os
+  campos e pede para conferir, sem travar.
 
 **Segurança**
 - Cabeçalhos: CSP, `X-Frame-Options: DENY`, HSTS (atrás de HTTPS), `nosniff`, `Referrer-Policy`.
