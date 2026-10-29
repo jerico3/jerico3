@@ -1015,7 +1015,7 @@
       $('f-tipo').value = c ? c.tipo : 'selecao';
       $('f-tipo-campo').hidden = !!c?.sistema; // o campo Evento é sempre uma caixa de seleção
       $('f-opcoes').value = c ? c.opcoes.join('\n') : '';
-      $('f-obrigatorio').checked = c ? !!c.obrigatorio : false;
+      $('f-obrigatorio').checked = c ? !!c.obrigatorio : true;
       $('f-ativo').checked = c ? !!c.ativo : true;
       sincTipo();
       d.showModal();

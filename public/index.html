@@ -119,6 +119,14 @@
       margin-bottom: 14px;
     }
     .error.show { display: block; }
+    /* Campo com erro: borda e texto em vermelho logo abaixo do campo. */
+    .invalido input[type=text], .invalido input[type=tel], .invalido input[type=email], .invalido select { border-color: var(--error); background-color: #fff7f7; }
+    .invalido input:focus, .invalido select:focus { box-shadow: 0 0 0 3px rgba(185, 28, 28, .15); }
+    .invalido.check input { outline: 2px solid var(--error); outline-offset: 1px; }
+    .msg-erro { margin: 6px 0 0; color: var(--error); font-size: .8rem; font-weight: 600; display: flex; gap: 6px; align-items: flex-start; }
+    .msg-erro::before { content: '!'; flex: none; width: 15px; height: 15px; border-radius: 50%; background: var(--error); color: #fff; font-size: .68rem; display: grid; place-items: center; margin-top: 1px; }
+    .check.invalido { display: grid; grid-template-columns: 18px 1fr; column-gap: 8px; }
+    .check .msg-erro { grid-column: 2; margin: 6px 0 0; }
 
     /* ---------- Tela 2: código ---------- */
     .tela-codigo {
@@ -171,19 +179,19 @@
       <div class="error" id="erro" role="alert"></div>
       <div class="grid" id="campos">
         <div class="full">
-          <label for="nome">Nome completo</label>
+          <label for="nome"><span class="obrig" aria-hidden="true">*</span> Nome completo</label>
           <input type="text" id="nome" name="nome" autocomplete="name" required maxlength="120" placeholder="Digite seu nome">
         </div>
         <div>
-          <label for="telefone">Telefone</label>
+          <label for="telefone"><span class="obrig" aria-hidden="true">*</span> Telefone</label>
           <input type="tel" id="telefone" name="telefone" autocomplete="tel-national" inputmode="numeric" required placeholder="Digite seu telefone">
         </div>
         <div>
-          <label for="cpf">CPF</label>
+          <label for="cpf"><span class="obrig" aria-hidden="true">*</span> CPF</label>
           <input type="text" id="cpf" name="cpf" inputmode="numeric" autocomplete="off" required placeholder="Digite seu cpf">
         </div>
         <div class="full">
-          <label for="email">Email</label>
+          <label for="email"><span class="obrig" aria-hidden="true">*</span> Email</label>
           <input type="email" id="email" name="email" autocomplete="email" required maxlength="160" placeholder="Digite seu email">
         </div>
       </div>
@@ -249,14 +257,14 @@
         const box = document.createElement('div');
         box.className = 'full';
         const id = `campo-${c.id}`;
-        const obrig = c.obrigatorio ? '<span class="obrig" aria-label="obrigatório">*</span> ' : '';
+        const obrig = c.obrigatorio ? '<span class="obrig" aria-hidden="true">*</span> ' : '';
         if (c.tipo === 'caixa') {
           box.classList.add('check');
-          box.innerHTML = `<input type="checkbox" id="${id}"><label for="${id}">${obrig}</label>`;
+          box.innerHTML = `<input type="checkbox" id="${id}"${c.obrigatorio ? ' required' : ''}><label for="${id}">${obrig}</label>`;
           box.querySelector('label').append(c.rotulo);
         } else {
-          box.innerHTML = `<label for="${id}"></label>`;
-          box.querySelector('label').textContent = c.rotulo;
+          box.innerHTML = `<label for="${id}">${obrig}</label>`;
+          box.querySelector('label').append(c.rotulo);
           let campo;
           if (c.tipo === 'selecao') {
             campo = document.createElement('select');
@@ -268,6 +276,7 @@
             campo.type = 'text';
             campo.maxLength = 300;
             campo.placeholder = 'Digite aqui';
+            campo.required = !!c.obrigatorio;
           }
           campo.id = id;
           box.append(campo);
@@ -275,16 +284,62 @@
         grade.append(box);
       }
     }
+    // Lê as respostas dos campos extras e devolve os erros por campo ({ 'campo-3': 'Selecione o evento.' }).
     function lerRespostas() {
       const respostas = {};
+      const erros = {};
       for (const c of camposExtras) {
         const campo = $(`campo-${c.id}`);
         const v = c.tipo === 'caixa' ? campo.checked : campo.value.trim();
-        if (c.obrigatorio && !v) return { erro: c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? `Escolha uma opção em "${c.rotulo}".` : `Preencha "${c.rotulo}".`, campo };
+        if (c.obrigatorio && !v) {
+          erros[campo.id] = c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? 'Escolha uma opção.'
+            : c.tipo === 'caixa' ? 'Marque esta opção para continuar.' : 'Preencha este campo.';
+        }
         respostas[c.id] = v;
       }
-      return { respostas };
+      return { respostas, erros };
     }
+
+    // Destaca o campo com erro e mostra a mensagem logo abaixo dele.
+    function marcarErro(id, msg) {
+      const campo = $(id);
+      if (!campo) return;
+      const caixa = campo.closest('.check, .grid > div') || campo.parentElement;
+      caixa.classList.add('invalido');
+      campo.setAttribute('aria-invalid', 'true');
+      let p = caixa.querySelector('.msg-erro');
+      if (!p) {
+        p = document.createElement('p');
+        p.className = 'msg-erro';
+        p.id = `erro-${id}`;
+        caixa.append(p);
+      }
+      p.textContent = msg;
+      campo.setAttribute('aria-describedby', p.id);
+    }
+    function limparErro(campo) {
+      const caixa = campo.closest('.invalido');
+      if (!caixa) return;
+      caixa.classList.remove('invalido');
+      caixa.querySelector('.msg-erro')?.remove();
+      campo.removeAttribute('aria-invalid');
+      campo.removeAttribute('aria-describedby');
+    }
+    function mostrarErros(erros) {
+      document.querySelectorAll('#form .invalido input, #form .invalido select').forEach(limparErro);
+      const ids = Object.keys(erros);
+      ids.forEach((id) => marcarErro(id, erros[id]));
+      if (ids.length) {
+        showError(ids.length === 1 ? 'Confira o campo destacado.' : `Confira os ${ids.length} campos destacados.`, false);
+        const primeiro = $(ids[0]);
+        primeiro.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        primeiro.focus({ preventScroll: true });
+      }
+      return ids.length > 0;
+    }
+    // Ao corrigir, o destaque some.
+    $('form').addEventListener('input', (e) => limparErro(e.target));
+    $('form').addEventListener('change', (e) => limparErro(e.target));
 
     function mostrarCodigo({ id, nome, jaCadastrado, novaPresenca, emailEnviado }) {
       const primeiroNome = (nome || '').split(' ')[0];
@@ -305,10 +360,10 @@
       window.scrollTo(0, 0);
     }
 
-    function showError(msg) {
+    function showError(msg, rolar = true) {
       $('erro').textContent = msg;
       $('erro').classList.toggle('show', !!msg);
-      if (msg) $('erro').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      if (msg && rolar) $('erro').scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 
     function cpfValido(cpf) {
@@ -344,13 +399,19 @@
       const cpf = $('cpf').value.replace(/\D/g, '');
       const email = $('email').value.trim();
 
-      if (nome.split(/\s+/).length < 2) return showError('Informe nome e sobrenome.');
-      if (telefone.length < 10) return showError('Informe um telefone válido com DDD.');
-      if (!cpfValido(cpf)) return showError('Informe um CPF válido.');
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return showError('Informe um e-mail válido.');
+      const erros = {};
+      if (!nome) erros.nome = 'Informe seu nome completo.';
+      else if (nome.split(/\s+/).length < 2) erros.nome = 'Informe nome e sobrenome.';
+      if (!telefone) erros.telefone = 'Informe seu telefone com DDD.';
+      else if (telefone.length < 10) erros.telefone = 'Telefone incompleto. Informe o DDD e o número.';
+      if (!cpf) erros.cpf = 'Informe seu CPF.';
+      else if (!cpfValido(cpf)) erros.cpf = 'CPF inválido. Confira os números.';
+      if (!email) erros.email = 'Informe seu e-mail.';
+      else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) erros.email = 'E-mail inválido. Exemplo: nome@gmail.com';
       const extras = lerRespostas();
-      if (extras.erro) { extras.campo.focus(); return showError(extras.erro); }
-      if (!$('aceite').checked) return showError('Para participar, é preciso concordar com o Aviso de Privacidade.');
+      Object.assign(erros, extras.erros);
+      if (!$('aceite').checked) erros.aceite = 'Para participar, marque que concorda com o Aviso de Privacidade.';
+      if (mostrarErros(erros)) return;
 
       const btn = $('enviar');
       btn.disabled = true;
@@ -362,7 +423,10 @@
           body: JSON.stringify({ nome, cpf, telefone, email, respostas: extras.respostas, aceite: true, marketing: $('marketing').checked, site: $('site').value }),
         });
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
+        if (!res.ok) {
+          if (data.campos && mostrarErros(data.campos)) return;
+          throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
+        }
         storage('set', data);
         mostrarCodigo(data);
       } catch (err) {

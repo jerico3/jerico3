@@ -76,6 +76,9 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 - Layout do Figma: fundo com a logo da importadora e a frase "Preencha seu cadastro e concorra a brindes exclusivos".
 - Nome, telefone (com máscara), CPF (validado pelos dígitos verificadores) e e-mail, todos
   obrigatórios, além do aceite de uso dos dados (LGPD).
+- Campos obrigatórios marcados com asterisco. Ao enviar com algo faltando ou errado, cada campo com
+  problema fica destacado em vermelho com a mensagem logo abaixo (o servidor confere de novo e devolve
+  o erro de cada campo). Novos campos criados no painel já vêm como obrigatórios.
 - Ao clicar em **Enviar**, a pessoa vê o comprovante na tela ("Você está concorrendo a brindes!",
   o código, como será o contato e o convite para seguir o Instagram) e recebe o mesmo comprovante por
   e-mail, com a marca `MARCA_NOME` (sem o nome do sistema interno).

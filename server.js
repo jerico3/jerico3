@@ -612,13 +612,14 @@ function normalize(body, { exigirAceite = true } = {}) {
   const cpf = String(body.cpf || '').replace(/\D/g, '');
   const telefone = String(body.telefone || '').replace(/\D/g, '');
   const email = String(body.email || '').trim().toLowerCase();
-  const errors = [];
-  if (nome.length < 3 || nome.length > 120) errors.push('Informe o nome completo.');
-  if (!cpfValido(cpf)) errors.push('Informe um CPF válido.');
-  if (telefone.length < 10 || telefone.length > 13) errors.push('Informe um telefone válido com DDD.');
-  if (!emailValido(email)) errors.push('Informe um e-mail válido.');
-  if (exigirAceite && body.aceite !== true) errors.push('É preciso aceitar o Aviso de Privacidade para participar.');
-  return { nome, cpf, telefone, email, marketing: body.marketing === true ? 1 : 0, errors };
+  // Erro de cada campo, para o formulário destacar o campo certo.
+  const porCampo = {};
+  if (nome.length < 3 || nome.length > 120 || nome.split(' ').length < 2) porCampo.nome = 'Informe nome e sobrenome.';
+  if (telefone.length < 10 || telefone.length > 13) porCampo.telefone = 'Informe um telefone válido com DDD.';
+  if (!cpfValido(cpf)) porCampo.cpf = 'CPF inválido. Confira os números.';
+  if (!emailValido(email)) porCampo.email = 'Informe um e-mail válido.';
+  if (exigirAceite && body.aceite !== true) porCampo.aceite = 'Para participar, é preciso concordar com o Aviso de Privacidade.';
+  return { nome, cpf, telefone, email, marketing: body.marketing === true ? 1 : 0, errors: Object.values(porCampo), porCampo };
 }
 
 // ---------- campos configuráveis do formulário ----------
@@ -632,17 +633,21 @@ function normalizeRespostas(body) {
   const recebidas = body.respostas && typeof body.respostas === 'object' ? body.respostas : {};
   const respostas = {};
   let evento = '';
-  const errors = [];
+  const porCampo = {};
   for (const c of camposAtivos()) {
     let v = recebidas[c.id];
     if (c.tipo === 'caixa') v = v === true;
     else v = String(v ?? '').trim().slice(0, 300);
-    if (c.tipo === 'selecao' && v && !c.opcoes.includes(v)) { errors.push(`Escolha uma opção válida em "${c.rotulo}".`); continue; }
-    if (c.obrigatorio && (c.tipo === 'caixa' ? !v : !v)) { errors.push(c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? `Escolha uma opção em "${c.rotulo}".` : `Preencha "${c.rotulo}".`); continue; }
+    const chave = `campo-${c.id}`;
+    if (c.tipo === 'selecao' && v && !c.opcoes.includes(v)) { porCampo[chave] = 'Escolha uma das opções da lista.'; continue; }
+    if (c.obrigatorio && !v) {
+      porCampo[chave] = c.sistema === 'evento' ? 'Selecione o evento.' : c.tipo === 'selecao' ? 'Escolha uma opção.' : c.tipo === 'caixa' ? 'Marque esta opção para continuar.' : 'Preencha este campo.';
+      continue;
+    }
     if (c.sistema === 'evento') evento = v;
     else if (v !== '' && v !== false) respostas[c.id] = v;
   }
-  return { respostas, evento, errors };
+  return { respostas, evento, errors: Object.values(porCampo), porCampo };
 }
 
 function normalizeCampo(body, atual) {
@@ -1022,7 +1027,7 @@ rota('POST', '/api/cadastro', async (req, res) => {
   const data = normalize(body);
   const extras = normalizeRespostas(body);
   const erros = [...data.errors, ...extras.errors];
-  if (erros.length) return json(res, 422, { erro: erros.join(' ') });
+  if (erros.length) return json(res, 422, { erro: erros.join(' '), campos: { ...data.porCampo, ...extras.porCampo } });
 
   // Um cadastro por CPF, válido em todos os eventos. Quem volta em outro evento envia o formulário de
   // novo e ganha a presença daquele dia e evento, com o mesmo código.
@@ -1032,7 +1037,10 @@ rota('POST', '/api/cadastro', async (req, res) => {
     // Só devolve o código se o telefone conferir: sem isso, qualquer um que digitasse o CPF de
     // outra pessoa descobriria o nome e o código dela.
     if (existing.telefone !== data.telefone) {
-      return json(res, 409, { erro: 'Este CPF já está cadastrado. Se foi você, informe o mesmo telefone usado no cadastro.' });
+      return json(res, 409, {
+        erro: 'Este CPF já está cadastrado com outro telefone.',
+        campos: { telefone: 'Este CPF já está cadastrado com outro telefone. Se foi você, informe o mesmo telefone do cadastro.' },
+      });
     }
     const novaPresenca = transacao(() => {
       q.updateRespostas.run(JSON.stringify({ ...JSON.parse(existing.respostas || '{}'), ...extras.respostas }), existing.id);
