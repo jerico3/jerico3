@@ -92,7 +92,7 @@
     async function post(url, body) {
       const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) { const e = new Error(data.erro || 'Algo deu errado.'); e.status = res.status; throw e; }
+      if (!res.ok) { const e = new Error(data.erro || (res.status >= 500 ? `O servidor não respondeu (erro ${res.status}). Ele pode estar reiniciando: aguarde um minuto e tente de novo.` : `Algo deu errado (erro ${res.status}). Tente novamente.`)); e.status = res.status; throw e; }
       return data;
     }
 

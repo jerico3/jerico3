@@ -459,7 +459,7 @@
             return showError('O formulário foi atualizado. Confira os campos destacados e toque em Enviar de novo.');
           }
           if (data.campos && mostrarErros(data.campos)) return;
-          throw new Error(data.erro || 'Não foi possível concluir o cadastro.');
+          throw new Error(data.erro || (res.status >= 500 ? `O servidor não respondeu (erro ${res.status}). Ele pode estar reiniciando: aguarde um minuto e tente de novo.` : `Não foi possível concluir o cadastro (erro ${res.status}). Tente novamente.`));
         }
         storage('set', data);
         mostrarCodigo(data);

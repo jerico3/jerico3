@@ -597,7 +597,7 @@
       });
       if (res.status === 401) { location.href = '/login'; throw new Error('Sessão expirada.'); }
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.erro || 'Algo deu errado. Tente novamente.');
+      if (!res.ok) throw new Error(data.erro || (res.status >= 500 ? `O servidor não respondeu (erro ${res.status}). Ele pode estar reiniciando: aguarde um minuto e tente de novo.` : `Algo deu errado (erro ${res.status}). Tente novamente.`));
       return data;
     }
 
