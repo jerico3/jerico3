@@ -846,26 +846,18 @@ function enfileirarEmail(para, assunto, conteudo) {
 
 // A cada cadastro: confirmação com o código para quem se inscreveu e aviso para os administradores
 // que deixaram ligada a opção "Receber e-mail a cada novo cadastro".
-// Respostas dos campos extras como linhas "Campo: resposta".
-function textoRespostas(respostas = {}) {
-  const campos = new Map(q.campos.all().map((c) => [String(c.id), c.rotulo]));
-  return Object.entries(respostas).filter(([id]) => campos.has(id))
-    .map(([id, v]) => `${campos.get(id)}: ${v === true ? 'sim' : v}`);
-}
-
 function notificarCadastro(p) {
   const cod = codigo(p.id);
   enfileirarEmail(p.email, `Você está concorrendo a brindes! Seu código é ${cod} · ${MARCA}`,
     montarComprovante({ nome: p.nome, cod }));
-  const mascara = `***.${p.cpf.slice(3, 6)}.${p.cpf.slice(6, 9)}-**`;
+  // O aviso aos administradores não leva dados pessoais (CPF, telefone, e-mail, nome completo):
+  // e-mail pode ser encaminhado ou vazar. Os dados ficam só no painel, que exige login.
   for (const { email } of q.adminsNotificados.all()) {
-    enfileirarEmail(email, `Novo cadastro ${cod} — ${p.nome}`, {
+    enfileirarEmail(email, `Novo cadastro ${cod}`, {
       titulo: `Novo cadastro: ${cod}`,
       paragrafos: [
-        `Nome: ${p.nome}`,
-        `CPF: ${mascara} · Telefone: ${p.telefone} · E-mail: ${p.email}`,
-        `Cadastro em ${diaBr(p.dia)}${p.evento ? ` · evento: ${p.evento}` : ''} · aceita ofertas: ${p.marketing ? 'sim' : 'não'}`,
-        ...textoRespostas(p.respostas),
+        `${p.nome.split(' ')[0]} se cadastrou em ${diaBr(p.dia)}${p.evento ? `, no evento ${p.evento}` : ''}.`,
+        'Os dados completos estão no painel, na aba Cadastros.',
       ],
       botao: 'Abrir o painel',
       link: PUBLIC_URL ? `${PUBLIC_URL}/admin` : null,

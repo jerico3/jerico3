@@ -108,7 +108,7 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 **Notificações por e-mail** (precisa do `SMTP_*`)
 - Quem se cadastra recebe o **comprovante de participação**: código, nome, dia do evento e como
   funciona o sorteio. A tela mostra para qual e-mail (mascarado) ele foi enviado.
-- Administradores recebem um e-mail a cada novo cadastro (nome, código e CPF mascarado). Cada um pode
+- Administradores recebem um e-mail a cada novo cadastro só com o código, o primeiro nome e o evento (sem CPF, telefone ou e-mail: os dados ficam no painel). Cada um pode
   desligar em Usuários → Editar → "Receber e-mail a cada novo cadastro".
 - Com o painel aberto, um aviso aparece quando chegam cadastros novos.
 
