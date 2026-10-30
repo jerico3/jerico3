@@ -455,8 +455,8 @@
         <select id="u-papel"><option value="operador">Operador</option><option value="admin">Administrador</option></select>
       </div>
       <p class="muted" id="u-convite-info" style="font-size:.85rem;margin:0 0 12px">
-        A pessoa vai receber um e-mail para confirmar o cadastro e criar a própria senha. No primeiro login,
-        ela configura a verificação em duas etapas no celular.
+        A pessoa vai receber um e-mail para confirmar o cadastro e criar a própria senha.<span class="so-2fa"> No primeiro login,
+        ela configura a verificação em duas etapas no celular.</span>
       </p>
       <label class="check" id="u-notif-linha"><input type="checkbox" id="u-notif"> Receber e-mail a cada novo cadastro</label>
       <label class="check" id="u-ativo-linha"><input type="checkbox" id="u-ativo"> Usuário ativo (pode entrar no painel)</label>
@@ -836,10 +836,10 @@
         perfil.append(el('span', u.papel === 'admin' ? 'Administrador' : 'Operador', `tag perfil ${u.papel}`));
         if (!u.ativo) perfil.append(el('span', 'desativado', 'tag perfil inativo'));
         if (!u.confirmado) perfil.append(el('span', 'convite pendente', 'tag perfil inativo'));
-        else perfil.append(el('span', u.totp_ativo ? '2 etapas ativa' : '2 etapas no próximo login', u.totp_ativo ? 'tag perfil ofertas' : 'tag perfil operador'));
+        else if (eu.doisFatores) perfil.append(el('span', u.totp_ativo ? '2 etapas ativa' : '2 etapas no próximo login', u.totp_ativo ? 'tag perfil ofertas' : 'tag perfil operador'));
         const acoes = el('td', null, 'acoes');
         if (!u.confirmado) acoes.append(botao('Reenviar convite', '', () => reenviarConvite(u)));
-        if (u.totp_ativo) acoes.append(botao('Redefinir 2 etapas', '', () => redefinir2fa(u)));
+        if (u.totp_ativo && eu.doisFatores) acoes.append(botao('Redefinir 2 etapas', '', () => redefinir2fa(u)));
         acoes.append(botao('Editar', '', () => abrirUsuario(u)));
         if (u.id !== eu.id) acoes.append(botao('Excluir', 'perigo', () => excluirUsuario(u)));
         tr.append(nome, el('td', u.email), perfil, el('td', fmtData(u.criado_em)), acoes);
@@ -1139,6 +1139,7 @@
       $('me-nome').textContent = eu.nome;
       $('me-papel').textContent = eu.papel === 'admin' ? 'Administrador' : 'Operador';
       document.querySelectorAll('.so-admin').forEach((e) => e.hidden = !ehAdmin());
+      document.querySelectorAll('.so-2fa').forEach((e) => e.hidden = !eu.doisFatores);
     }
 
     $('abrir-senha').onclick = () => {

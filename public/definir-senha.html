@@ -141,9 +141,11 @@
       btn.textContent = 'Salvando…';
       try {
         await post('/api/senha/definir', { token, senha });
+        const cfg = await fetch('/api/config').then((r) => r.json()).catch(() => ({}));
+        const doisFatores = cfg.doisFatores !== false;
         $('pronto-msg').textContent = tipo === 'convite'
-          ? 'Cadastro confirmado. Agora entre no painel com seu e-mail e a nova senha; no primeiro acesso você vai configurar a verificação em duas etapas.'
-          : 'Agora entre no painel com seu e-mail e a nova senha. A verificação em duas etapas continua valendo.';
+          ? `Cadastro confirmado. Agora entre no painel com seu e-mail e a nova senha${doisFatores ? '; no primeiro acesso você vai configurar a verificação em duas etapas' : ''}.`
+          : `Agora entre no painel com seu e-mail e a nova senha.${doisFatores ? ' A verificação em duas etapas continua valendo.' : ''}`;
         mostrar('pronto');
       } catch (err) {
         if (err.status === 410) { $('invalido-msg').textContent = err.message; return mostrar('invalido'); }

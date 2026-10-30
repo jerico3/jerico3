@@ -62,6 +62,7 @@ autenticador no primeiro login; recarrega ao salvar).
 | `INSTAGRAM_URL`  | `https://www.instagram.com/importadoravolkswagen/` | Instagram divulgado na tela do código e no comprovante (vazio = esconde). |
 | `MARCA_NOME`     | `Importadora Volkswagen` | Marca mostrada ao participante (tela do código e comprovante por e-mail). |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
+| `DOIS_FATORES`   | _(ligado)_          | `desligado` = login só com e-mail e senha. Não apaga nada: ao religar, quem já tinha o app configurado volta a usá-lo. |
 | `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
 | `BACKUP_HORAS`   | `6`                 | Intervalo entre backups automáticos (também faz um ao iniciar). |
 | `BACKUP_MANTER`  | `28`                | Quantos backups automáticos guardar.                 |

@@ -31,6 +31,9 @@ const BACKUP_HORAS = Math.max(1, Number(process.env.BACKUP_HORAS) || 6);
 const SESSION_HOURS = 12;
 // Nome que aparece no app autenticador (Google Authenticator etc.) ao lado do e-mail.
 const TOTP_EMISSOR = process.env.TOTP_EMISSOR || APP_NOME;
+// Verificação em duas etapas no login. DOIS_FATORES=desligado entra só com e-mail e senha; nada é
+// apagado do banco (quem já configurou o app continua configurado e volta a usá-lo ao religar).
+const DOIS_FATORES = !/^(desligado|nao|não|false|0|off)$/i.test(process.env.DOIS_FATORES || '');
 // Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
 const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // Marca mostrada ao participante (tela do código e e-mail de comprovante). O nome do sistema
@@ -769,7 +772,9 @@ async function enviarConvite(req, alvo, quemConvidou) {
       titulo: `Olá, ${alvo.nome.split(' ')[0]}!`,
       paragrafos: [
         `${quemConvidou.nome} criou um acesso para você na Central de Gestão ${APP_NOME}.`,
-        'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois, no primeiro login, você vai configurar a verificação em duas etapas com um app autenticador no celular.',
+        DOIS_FATORES
+          ? 'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois, no primeiro login, você vai configurar a verificação em duas etapas com um app autenticador no celular.'
+          : 'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois é só entrar no painel com seu e-mail e a nova senha.',
         'O link vale por 72 horas e só pode ser usado uma vez.',
       ],
       botao: 'Confirmar cadastro e criar senha',
@@ -989,6 +994,7 @@ rota('GET', '/api/config', (req, res) => json(res, 200, {
   evento: EVENT_NAME,
   app: APP_NOME,
   marca: MARCA,
+  doisFatores: DOIS_FATORES,
   campos: camposAtivos().map(({ id, rotulo, tipo, opcoes, obrigatorio, sistema }) => ({ id, rotulo, tipo, opcoes, obrigatorio, sistema })),
   instagram: INSTAGRAM_URL ? { url: INSTAGRAM_URL, arroba: INSTAGRAM_ARROBA } : null,
   prefixo: CODE_PREFIX,
@@ -1096,6 +1102,11 @@ rota('POST', '/api/login', async (req, res) => {
     if (u && ok && !u.ativo) return json(res, 403, { erro: 'Este usuário está desativado.' });
     return json(res, 401, { erro: 'E-mail ou senha incorretos.' });
   }
+  if (!DOIS_FATORES) {
+    const { cookie } = criarSessao(req, u.id);
+    registrar(u, 'login', 'Entrou com e-mail e senha (verificação em duas etapas desligada)');
+    return json(res, 200, { etapa: 'pronto' }, { 'Set-Cookie': cookie });
+  }
   // Senha certa: falta a segunda etapa (código do app). Quem ainda não configurou, configura agora.
   json(res, 200, { etapa: u.totp_ativo ? 'codigo' : 'configurar', ticket: criarTicket(u.id) });
 });
@@ -1187,7 +1198,7 @@ rota('POST', '/api/senha/esqueci', async (req, res) => {
       paragrafos: [
         `Recebemos um pedido para criar uma nova senha para ${u.email} na Central de Gestão ${APP_NOME}.`,
         'Clique no botão abaixo para escolher a nova senha. O link vale por 1 hora e só pode ser usado uma vez.',
-        'A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.',
+        ...(DOIS_FATORES ? ['A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.'] : []),
       ],
       botao: 'Criar nova senha',
       link,
@@ -1240,7 +1251,7 @@ rota('POST', '/api/logout', (req, res) => {
 rota('GET', '/api/me', (req, res) => {
   const u = exigirUsuario(req, res);
   if (!u) return;
-  json(res, 200, { id: u.id, nome: u.nome, email: u.email, papel: u.papel });
+  json(res, 200, { id: u.id, nome: u.nome, email: u.email, papel: u.papel, doisFatores: DOIS_FATORES });
 });
 
 rota('POST', '/api/me/senha', async (req, res) => {
@@ -1922,6 +1933,7 @@ criarPrimeiroAdmin().then(() => {
     console.log(mailer.configurado()
       ? `E-mail: ligado (${process.env.SMTP_HOST}, enviando como ${process.env.SMTP_FROM || process.env.SMTP_USER})`
       : 'E-mail: desligado (defina SMTP_HOST, SMTP_USER e SMTP_PASS). Convites, recuperação de senha e avisos de cadastro não são enviados.');
+    console.log(DOIS_FATORES ? 'Verificação em duas etapas: ligada' : 'Verificação em duas etapas: DESLIGADA (DOIS_FATORES=desligado). Login só com e-mail e senha.');
     // Na Hostinger (e em outros serviços que publicam a partir do Git) a pasta do app é recriada a
     // cada publicação: um banco guardado dentro dela some junto, com cadastros e usuários.
     const rel = path.relative(__dirname, path.resolve(DB_PATH));
