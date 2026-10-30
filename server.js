@@ -31,9 +31,14 @@ const BACKUP_HORAS = Math.max(1, Number(process.env.BACKUP_HORAS) || 6);
 const SESSION_HOURS = 12;
 // Nome que aparece no app autenticador (Google Authenticator etc.) ao lado do e-mail.
 const TOTP_EMISSOR = process.env.TOTP_EMISSOR || APP_NOME;
-// Verificação em duas etapas no login. DOIS_FATORES=desligado entra só com e-mail e senha; nada é
-// apagado do banco (quem já configurou o app continua configurado e volta a usá-lo ao religar).
-const DOIS_FATORES = !/^(desligado|nao|não|false|0|off)$/i.test(process.env.DOIS_FATORES || '');
+// Verificação em duas etapas no login (DOIS_FATORES):
+// - opcional (padrão): cada usuário escolhe ativar; quem ativou precisa do código, quem não ativou
+//   entra com a senha e o painel pergunta se quer ativar agora;
+// - obrigatorio: todos configuram o app no primeiro login;
+// - desligado: ninguém usa (nada é apagado; quem já configurou volta a usar ao religar).
+const MODO_2FA = /^(desligado|nao|não|false|0|off)$/i.test(process.env.DOIS_FATORES || '') ? 'desligado'
+  : /^obrigat/i.test(process.env.DOIS_FATORES || '') ? 'obrigatorio' : 'opcional';
+const DOIS_FATORES = MODO_2FA !== 'desligado';
 // Dados do controlador exibidos no Aviso de Privacidade (/privacidade).
 const CONTROLADOR_NOME = process.env.CONTROLADOR_NOME || EVENT_NAME;
 // Marca mostrada ao participante (tela do código e e-mail de comprovante). O nome do sistema
@@ -323,7 +328,7 @@ const q = {
   tentativaTicket: db.prepare('UPDATE login_tickets SET tentativas = tentativas + 1 WHERE token_hash = ?'),
   deleteTicket: db.prepare('DELETE FROM login_tickets WHERE token_hash = ?'),
   ticketsVencidos: db.prepare('DELETE FROM login_tickets WHERE expira_em <= ?'),
-  userByEmail: db.prepare('SELECT id, nome, email, ativo, confirmado FROM usuarios WHERE email = ?'),
+  userByEmail: db.prepare('SELECT id, nome, email, ativo, confirmado, totp_ativo FROM usuarios WHERE email = ?'),
   insertUserPendente: db.prepare('INSERT INTO usuarios (nome, email, senha_hash, papel, confirmado) VALUES (?, ?, ?, ?, 0)'),
   confirmarUsuario: db.prepare('UPDATE usuarios SET senha_hash = ?, confirmado = 1 WHERE id = ?'),
   ativarTotp: db.prepare('UPDATE usuarios SET totp_segredo = ?, totp_ativo = 1, totp_ultimo_passo = ?, codigos_recuperacao = ?, totp_pendente = NULL WHERE id = ?'),
@@ -772,7 +777,7 @@ async function enviarConvite(req, alvo, quemConvidou) {
       titulo: `Olá, ${alvo.nome.split(' ')[0]}!`,
       paragrafos: [
         `${quemConvidou.nome} criou um acesso para você na Central de Gestão ${APP_NOME}.`,
-        DOIS_FATORES
+        MODO_2FA === 'obrigatorio'
           ? 'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois, no primeiro login, você vai configurar a verificação em duas etapas com um app autenticador no celular.'
           : 'Para confirmar o cadastro, clique no botão abaixo e crie a sua senha. Depois é só entrar no painel com seu e-mail e a nova senha.',
         'O link vale por 72 horas e só pode ser usado uma vez.',
@@ -995,6 +1000,7 @@ rota('GET', '/api/config', (req, res) => json(res, 200, {
   app: APP_NOME,
   marca: MARCA,
   doisFatores: DOIS_FATORES,
+  modo2fa: MODO_2FA,
   campos: camposAtivos().map(({ id, rotulo, tipo, opcoes, obrigatorio, sistema }) => ({ id, rotulo, tipo, opcoes, obrigatorio, sistema })),
   instagram: INSTAGRAM_URL ? { url: INSTAGRAM_URL, arroba: INSTAGRAM_ARROBA } : null,
   prefixo: CODE_PREFIX,
@@ -1102,10 +1108,10 @@ rota('POST', '/api/login', async (req, res) => {
     if (u && ok && !u.ativo) return json(res, 403, { erro: 'Este usuário está desativado.' });
     return json(res, 401, { erro: 'E-mail ou senha incorretos.' });
   }
-  if (!DOIS_FATORES) {
+  if (MODO_2FA === 'desligado' || (MODO_2FA === 'opcional' && !u.totp_ativo)) {
     const { cookie } = criarSessao(req, u.id);
-    registrar(u, 'login', 'Entrou com e-mail e senha (verificação em duas etapas desligada)');
-    return json(res, 200, { etapa: 'pronto' }, { 'Set-Cookie': cookie });
+    registrar(u, 'login', MODO_2FA === 'desligado' ? 'Entrou com e-mail e senha (verificação em duas etapas desligada)' : 'Entrou com e-mail e senha (sem verificação em duas etapas)');
+    return json(res, 200, { etapa: 'pronto', sugerir2fa: MODO_2FA === 'opcional' }, { 'Set-Cookie': cookie });
   }
   // Senha certa: falta a segunda etapa (código do app). Quem ainda não configurou, configura agora.
   json(res, 200, { etapa: u.totp_ativo ? 'codigo' : 'configurar', ticket: criarTicket(u.id) });
@@ -1198,7 +1204,7 @@ rota('POST', '/api/senha/esqueci', async (req, res) => {
       paragrafos: [
         `Recebemos um pedido para criar uma nova senha para ${u.email} na Central de Gestão ${APP_NOME}.`,
         'Clique no botão abaixo para escolher a nova senha. O link vale por 1 hora e só pode ser usado uma vez.',
-        ...(DOIS_FATORES ? ['A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.'] : []),
+        ...(DOIS_FATORES && u.totp_ativo ? ['A verificação em duas etapas continua valendo: depois da nova senha, você ainda vai precisar do código do app.'] : []),
       ],
       botao: 'Criar nova senha',
       link,
@@ -1251,7 +1257,54 @@ rota('POST', '/api/logout', (req, res) => {
 rota('GET', '/api/me', (req, res) => {
   const u = exigirUsuario(req, res);
   if (!u) return;
-  json(res, 200, { id: u.id, nome: u.nome, email: u.email, papel: u.papel, doisFatores: DOIS_FATORES });
+  const auth = q.userAuth.get(u.id);
+  json(res, 200, { id: u.id, nome: u.nome, email: u.email, papel: u.papel, doisFatores: DOIS_FATORES, modo2fa: MODO_2FA, totpAtivo: !!auth.totp_ativo });
+});
+
+// --- verificação em duas etapas ativada pelo próprio usuário, já dentro do painel ---
+
+rota('POST', '/api/me/2fa/iniciar', (req, res) => {
+  const u = exigirUsuario(req, res);
+  if (!u) return;
+  if (!DOIS_FATORES) return json(res, 409, { erro: 'A verificação em duas etapas está desligada no sistema.' });
+  if (q.userAuth.get(u.id).totp_ativo) return json(res, 409, { erro: 'A verificação em duas etapas já está ativa.' });
+  q.totpPendente.run(totp.gerarSegredo(), u.id);
+  const segredo = q.userAuth.get(u.id).totp_pendente;
+  json(res, 200, { segredo, uri: totp.uri(segredo, u.email, TOTP_EMISSOR), emissor: TOTP_EMISSOR });
+});
+
+rota('POST', '/api/me/2fa/ativar', async (req, res) => {
+  const u = exigirUsuario(req, res);
+  if (!u) return;
+  const ip = clientIp(req);
+  if (limiteLogin.excedeu(ip)) return json(res, 429, { erro: 'Muitas tentativas. Aguarde 15 minutos e tente de novo.' });
+  const body = await readJson(req).catch(() => ({}));
+  const auth = q.userAuth.get(u.id);
+  if (auth.totp_ativo) return json(res, 409, { erro: 'A verificação em duas etapas já está ativa.' });
+  if (!auth.totp_pendente) return json(res, 409, { erro: 'Leia o QR Code no app antes de digitar o código.' });
+  const passo = totp.verificar(auth.totp_pendente, body.codigo);
+  if (passo === null) {
+    limiteLogin.contar(ip);
+    return json(res, 422, { erro: `Código incorreto. Confira se está usando a conta "${TOTP_EMISSOR}" lida neste QR Code.${dicaRelogio(auth.totp_pendente, body.codigo)}` });
+  }
+  const codigos = gerarCodigosRecuperacao();
+  q.ativarTotp.run(auth.totp_pendente, passo, JSON.stringify(codigos.map((c) => sha256(normalizarRecuperacao(c)))), u.id);
+  registrar(u, '2fa.ativado', 'Ativou a verificação em duas etapas pelo painel');
+  json(res, 200, { ok: true, codigosRecuperacao: codigos });
+});
+
+// Desativar a própria verificação (só no modo opcional), confirmando com a senha.
+rota('POST', '/api/me/2fa/desativar', async (req, res) => {
+  const u = exigirUsuario(req, res);
+  if (!u) return;
+  if (MODO_2FA !== 'opcional') return json(res, 409, { erro: 'A verificação em duas etapas é obrigatória para todos.' });
+  const body = await readJson(req).catch(() => ({}));
+  if (!(await conferirSenha(String(body.senha || ''), q.hashById.get(u.id).senha_hash))) {
+    return json(res, 422, { erro: 'Senha incorreta.' });
+  }
+  q.zerarTotp.run(u.id);
+  registrar(u, '2fa.desativado', 'Desativou a própria verificação em duas etapas');
+  json(res, 200, { ok: true });
 });
 
 rota('POST', '/api/me/senha', async (req, res) => {
@@ -1933,7 +1986,11 @@ criarPrimeiroAdmin().then(() => {
     console.log(mailer.configurado()
       ? `E-mail: ligado (${process.env.SMTP_HOST}, enviando como ${process.env.SMTP_FROM || process.env.SMTP_USER})`
       : 'E-mail: desligado (defina SMTP_HOST, SMTP_USER e SMTP_PASS). Convites, recuperação de senha e avisos de cadastro não são enviados.');
-    console.log(DOIS_FATORES ? 'Verificação em duas etapas: ligada' : 'Verificação em duas etapas: DESLIGADA (DOIS_FATORES=desligado). Login só com e-mail e senha.');
+    console.log({
+      opcional: 'Verificação em duas etapas: opcional (cada usuário escolhe ativar no painel)',
+      obrigatorio: 'Verificação em duas etapas: obrigatória para todos',
+      desligado: 'Verificação em duas etapas: DESLIGADA (DOIS_FATORES=desligado). Login só com e-mail e senha.',
+    }[MODO_2FA]);
     // Na Hostinger (e em outros serviços que publicam a partir do Git) a pasta do app é recriada a
     // cada publicação: um banco guardado dentro dela some junto, com cadastros e usuários.
     const rel = path.relative(__dirname, path.resolve(DB_PATH));

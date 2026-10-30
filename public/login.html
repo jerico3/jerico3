@@ -276,7 +276,12 @@
       if (!email || !senha) return erro('Informe e-mail e senha.');
       comBotao(e.target, async () => {
         const r = await post('/api/login', { email, senha });
-        if (r.etapa === 'pronto') { location.href = '/admin'; return; }
+        if (r.etapa === 'pronto') {
+          // Sem verificação em duas etapas: o painel pergunta se a pessoa quer ativar agora.
+          try { if (r.sugerir2fa) sessionStorage.setItem('sugerir-2fa', '1'); } catch {}
+          location.href = '/admin';
+          return;
+        }
         ticket = r.ticket;
         $('senha').value = '';
         if (r.etapa === 'configurar') return iniciarConfiguracao();

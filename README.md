@@ -62,7 +62,7 @@ autenticador no primeiro login; recarrega ao salvar).
 | `INSTAGRAM_URL`  | `https://www.instagram.com/importadoravolkswagen/` | Instagram divulgado na tela do código e no comprovante (vazio = esconde). |
 | `MARCA_NOME`     | `Importadora Volkswagen` | Marca mostrada ao participante (tela do código e comprovante por e-mail). |
 | `TOTP_EMISSOR`   | `APP_NOME`          | Nome da conta que aparece no app autenticador.       |
-| `DOIS_FATORES`   | _(ligado)_          | `desligado` = login só com e-mail e senha. Não apaga nada: ao religar, quem já tinha o app configurado volta a usá-lo. |
+| `DOIS_FATORES`   | `opcional`          | `opcional`: cada usuário escolhe ativar (quem não ativou vê, a cada login, um aviso perguntando se quer ativar agora); `obrigatorio`: todos configuram no 1º login; `desligado`: ninguém usa. Trocar não apaga nada. |
 | `BACKUP_DIR`     | pasta `backups` ao lado do banco | Onde ficam as cópias de segurança.      |
 | `BACKUP_HORAS`   | `6`                 | Intervalo entre backups automáticos (também faz um ao iniciar). |
 | `BACKUP_MANTER`  | `28`                | Quantos backups automáticos guardar.                 |
@@ -137,8 +137,10 @@ e-mails usam `PUBLIC_URL`, que precisa estar definido para a recuperação de se
 **Painel (`/admin`)**
 - **Login** com e-mail e senha (senhas guardadas com hash `scrypt`, sessão de 12 horas em cookie
   `HttpOnly`, bloqueio de 15 minutos após 10 tentativas erradas).
-- **Verificação em duas etapas obrigatória** (TOTP: Google Authenticator, Microsoft Authenticator,
-  Authy). Configurada no primeiro login por QR Code; gera 10 **códigos de recuperação** de uso único.
+- **Verificação em duas etapas** (TOTP: Google Authenticator, Microsoft Authenticator, Authy), opcional
+  por padrão: o usuário ativa em "Verificação em 2 etapas" no topo do painel, ou no aviso que aparece a
+  cada login enquanto não ativou ("Sim, ativar agora" / "Mais tarde"). Pode desativar confirmando a
+  senha. Gera 10 **códigos de recuperação** de uso único.
   Um código não pode ser reaproveitado, e cada tentativa de login aceita no máximo 5 códigos.
 - **Convite por e-mail**: o administrador informa nome, e-mail e perfil; a pessoa recebe um link
   (72 h, uso único) para confirmar o cadastro e criar a senha. Até lá a conta fica "convite pendente".

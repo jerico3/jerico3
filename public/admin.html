@@ -185,6 +185,7 @@
         <div class="marca"><strong id="app-nome">Importadora Link</strong><span>Central de Gestão</span></div>
         <div class="conta">
           <span class="nome" id="me-nome"></span><span class="papel" id="me-papel"></span>
+          <button class="link-topo so-2fa" id="abrir-2fa" hidden>Verificação em 2 etapas</button>
           <button class="link-topo" id="abrir-senha">Alterar senha</button>
           <button class="link-topo" id="sair">Sair</button>
         </div>
@@ -523,6 +524,64 @@
     </form>
   </dialog>
 
+  <dialog id="dlg-2fa">
+    <form method="dialog" id="form-2fa" novalidate style="max-width:460px">
+      <div class="erro-dlg"></div>
+      <section data-passo="pergunta">
+        <h3>Proteja sua conta</h3>
+        <p style="margin:0 0 10px;color:#334155">Quer ativar agora a <strong>verificação em duas etapas</strong>? Além da senha, o painel vai pedir um código
+          do app autenticador do celular (Google Authenticator, Microsoft Authenticator ou Authy). Leva 1 minuto.</p>
+        <p class="muted" style="margin:0;font-size:.85rem">Mesmo que alguém descubra sua senha, não consegue entrar sem o seu celular.</p>
+        <div class="rodape-dlg">
+          <button type="button" class="btn" data-acao="depois">Mais tarde</button>
+          <button type="button" class="btn primario" data-acao="ativar">Sim, ativar agora</button>
+        </div>
+      </section>
+      <section data-passo="configurar" hidden>
+        <h3>Ativar a verificação em duas etapas</h3>
+        <ol style="margin:0 0 12px;padding-left:20px;color:#334155;font-size:.9rem;line-height:1.5">
+          <li>Instale um app autenticador no celular (Google Authenticator, Microsoft Authenticator ou Authy).</li>
+          <li>No app, toque em <strong>+</strong> e leia o QR Code abaixo. Vai aparecer a conta <strong id="emissor-2fa-adm">Importadora Link</strong>.</li>
+          <li>Digite o código de 6 números que o app mostrar.</li>
+        </ol>
+        <div id="qr-2fa-adm" style="display:flex;justify-content:center"></div>
+        <p class="muted" style="text-align:center;font-size:.8rem;margin:6px 0 12px">Não consegue ler? Digite esta chave no app:<br><strong id="chave-2fa-adm" style="color:var(--text);letter-spacing:.05em"></strong></p>
+        <div class="campo"><label for="codigo-2fa">Código do app</label><input type="text" id="codigo-2fa" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000"></div>
+        <div class="rodape-dlg">
+          <button type="button" class="btn" data-acao="depois">Mais tarde</button>
+          <button type="button" class="btn primario" data-acao="confirmar">Ativar</button>
+        </div>
+      </section>
+      <section data-passo="codigos" hidden>
+        <h3>Pronto! Guarde seus códigos de recuperação</h3>
+        <p style="margin:0 0 10px;color:#334155;font-size:.9rem">Se perder o celular, use um destes códigos no lugar do código do app. Cada um vale uma vez.</p>
+        <div id="lista-codigos-adm" style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-family:ui-monospace,monospace;background:#f4f6fa;border-radius:10px;padding:12px;font-size:.95rem"></div>
+        <div style="display:flex;gap:8px;margin-top:10px">
+          <button type="button" class="btn pequeno" id="copiar-codigos-adm">Copiar</button>
+          <button type="button" class="btn pequeno" id="baixar-codigos-adm">Baixar .txt</button>
+        </div>
+        <label class="check" style="margin-top:12px"><input type="checkbox" id="guardei-adm"> Guardei os códigos em um lugar seguro</label>
+        <div class="rodape-dlg">
+          <button type="button" class="btn primario" data-acao="concluir" id="concluir-2fa" disabled>Concluir</button>
+        </div>
+      </section>
+      <section data-passo="ativa" hidden>
+        <h3>Verificação em duas etapas ativa</h3>
+        <p style="margin:0 0 12px;color:#334155;font-size:.9rem">Ao entrar, o painel pede a senha e o código do app. Para desativar, confirme sua senha.</p>
+        <div class="campo"><label for="senha-2fa">Sua senha</label><input type="password" id="senha-2fa" autocomplete="current-password"></div>
+        <div class="rodape-dlg">
+          <button type="button" class="btn" data-fechar>Fechar</button>
+          <button type="button" class="btn perigo" data-acao="desativar">Desativar</button>
+        </div>
+      </section>
+      <section data-passo="obrigatoria" hidden>
+        <h3>Verificação em duas etapas ativa</h3>
+        <p style="margin:0;color:#334155;font-size:.9rem">Ela é obrigatória para todos neste painel. Se trocar de celular, peça a um administrador para redefinir.</p>
+        <div class="rodape-dlg"><button type="button" class="btn primario" data-fechar>Fechar</button></div>
+      </section>
+    </form>
+  </dialog>
+
   <dialog id="dlg-confirmar">
     <form method="dialog">
       <h3 id="conf-titulo"></h3>
@@ -836,7 +895,10 @@
         perfil.append(el('span', u.papel === 'admin' ? 'Administrador' : 'Operador', `tag perfil ${u.papel}`));
         if (!u.ativo) perfil.append(el('span', 'desativado', 'tag perfil inativo'));
         if (!u.confirmado) perfil.append(el('span', 'convite pendente', 'tag perfil inativo'));
-        else if (eu.doisFatores) perfil.append(el('span', u.totp_ativo ? '2 etapas ativa' : '2 etapas no próximo login', u.totp_ativo ? 'tag perfil ofertas' : 'tag perfil operador'));
+        else if (eu.doisFatores) {
+          const semTexto = eu.modo2fa === 'obrigatorio' ? '2 etapas no próximo login' : 'sem 2 etapas';
+          perfil.append(el('span', u.totp_ativo ? '2 etapas ativa' : semTexto, u.totp_ativo ? 'tag perfil ofertas' : 'tag perfil operador'));
+        }
         const acoes = el('td', null, 'acoes');
         if (!u.confirmado) acoes.append(botao('Reenviar convite', '', () => reenviarConvite(u)));
         if (u.totp_ativo && eu.doisFatores) acoes.append(botao('Redefinir 2 etapas', '', () => redefinir2fa(u)));
@@ -908,7 +970,9 @@
     async function redefinir2fa(u) {
       const voce = u.id === eu.id;
       const ok = await confirmar(`Redefinir a verificação em 2 etapas de ${voce ? 'você' : u.nome}?`,
-        `Use quando a pessoa trocar ou perder o celular. ${voce ? 'Você vai sair' : 'Ela sai'} do painel e, no próximo login, configura o app de novo. Os códigos de recuperação antigos deixam de valer.`, 'Redefinir');
+        eu.modo2fa === 'obrigatorio'
+          ? `Use quando a pessoa trocar ou perder o celular. ${voce ? 'Você vai sair' : 'Ela sai'} do painel e, no próximo login, configura o app de novo. Os códigos de recuperação antigos deixam de valer.`
+          : `Use quando a pessoa trocar ou perder o celular. ${voce ? 'Você vai sair' : 'Ela sai'} do painel, volta a entrar só com a senha e pode ativar de novo com o celular novo. Os códigos de recuperação antigos deixam de valer.`, 'Redefinir');
       if (!ok) return;
       try {
         await api('POST', `/api/admin/usuarios/${u.id}/redefinir-2fa`, {});
@@ -946,6 +1010,7 @@
       'cadastros.exportados': 'Exportou CSV',
       '2fa.ativado': 'Ativou 2 etapas',
       '2fa.redefinido': 'Redefiniu 2 etapas',
+      '2fa.desativado': 'Desativou 2 etapas',
       'convite.aceito': 'Confirmou o cadastro',
       'convite.reenviado': 'Reenviou convite',
       'senha.recuperacao': 'Pediu nova senha por e-mail',
@@ -1141,6 +1206,89 @@
       document.querySelectorAll('.so-admin').forEach((e) => e.hidden = !ehAdmin());
       document.querySelectorAll('.so-2fa').forEach((e) => e.hidden = !eu.doisFatores);
     }
+
+    // ---------- verificação em duas etapas da própria conta ----------
+
+    function passo2fa(nome) {
+      const d = $('dlg-2fa');
+      erroDialogo(d, '');
+      d.querySelectorAll('[data-passo]').forEach((s) => s.hidden = s.dataset.passo !== nome);
+      if (!d.open) d.showModal();
+    }
+
+    function abrir2fa() {
+      if (!eu.totpAtivo) return passo2fa('pergunta');
+      $('senha-2fa').value = '';
+      passo2fa(eu.modo2fa === 'opcional' ? 'ativa' : 'obrigatoria');
+    }
+    $('abrir-2fa').onclick = abrir2fa;
+
+    async function configurar2fa() {
+      try {
+        const r = await api('POST', '/api/me/2fa/iniciar', {});
+        const qr = qrcode(0, 'M');
+        qr.addData(r.uri);
+        qr.make();
+        const img = document.createElement('img');
+        img.src = qr.createDataURL(5, 2);
+        img.alt = 'QR Code para o app autenticador';
+        $('qr-2fa-adm').replaceChildren(img);
+        $('chave-2fa-adm').textContent = r.segredo.replace(/(.{4})/g, '$1 ').trim();
+        if (r.emissor) $('emissor-2fa-adm').textContent = r.emissor;
+        $('codigo-2fa').value = '';
+        passo2fa('configurar');
+        $('codigo-2fa').focus();
+      } catch (e) { erroDialogo($('dlg-2fa'), e.message); }
+    }
+
+    function mostrarCodigos2fa(codigos) {
+      $('lista-codigos-adm').replaceChildren(...codigos.map((c) => el('span', c)));
+      const texto = `Códigos de recuperação · ${$('app-nome').textContent} · Central de Gestão\n(cada um vale uma vez)\n\n${codigos.join('\n')}\n`;
+      $('copiar-codigos-adm').onclick = async () => {
+        try { await navigator.clipboard.writeText(texto); $('copiar-codigos-adm').textContent = 'Copiado!'; } catch { $('copiar-codigos-adm').textContent = 'Não foi possível copiar'; }
+      };
+      $('baixar-codigos-adm').onclick = () => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([texto], { type: 'text/plain' }));
+        a.download = 'codigos-recuperacao-painel.txt';
+        a.click();
+      };
+      $('guardei-adm').checked = false;
+      $('concluir-2fa').disabled = true;
+      passo2fa('codigos');
+    }
+    $('guardei-adm').onchange = () => { $('concluir-2fa').disabled = !$('guardei-adm').checked; };
+
+    $('form-2fa').onsubmit = (e) => e.preventDefault();
+    $('codigo-2fa').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); confirmar2fa(); } });
+    $('senha-2fa').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); $('dlg-2fa').querySelector('[data-acao=desativar]').click(); } });
+    async function confirmar2fa() {
+      const codigo = $('codigo-2fa').value.trim();
+      if (!/^\d{6}$/.test(codigo)) return erroDialogo($('dlg-2fa'), 'Digite os 6 números que aparecem no app.');
+      try {
+        const r = await api('POST', '/api/me/2fa/ativar', { codigo });
+        eu.totpAtivo = true;
+        mostrarCodigos2fa(r.codigosRecuperacao || []);
+      } catch (e) { erroDialogo($('dlg-2fa'), e.message); }
+    }
+
+    $('dlg-2fa').addEventListener('click', async (e) => {
+      const acao = e.target.closest('[data-acao]')?.dataset.acao;
+      if (!acao) return;
+      if (acao === 'depois') { $('dlg-2fa').close(); toast('Tudo bem. Você pode ativar quando quiser em "Verificação em 2 etapas", no topo.'); }
+      if (acao === 'ativar') configurar2fa();
+      if (acao === 'confirmar') confirmar2fa();
+      if (acao === 'concluir') { $('dlg-2fa').close(); toast('Verificação em duas etapas ativada.'); if (ehAdmin() && abaAtual === 'usuarios') carregarUsuarios(); }
+      if (acao === 'desativar') {
+        try {
+          await api('POST', '/api/me/2fa/desativar', { senha: $('senha-2fa').value });
+          eu.totpAtivo = false;
+          $('dlg-2fa').close();
+          toast('Verificação em duas etapas desativada.');
+          if (ehAdmin() && abaAtual === 'usuarios') carregarUsuarios();
+        } catch (err) { erroDialogo($('dlg-2fa'), err.message); }
+      }
+    });
 
     $('abrir-senha').onclick = () => {
       const d = $('dlg-senha');
@@ -1411,6 +1559,10 @@
         }
       } catch {}
       await carregarEu();
+      // Logo depois de entrar sem a verificação em duas etapas: pergunta se quer ativar agora.
+      let sugerir = false;
+      try { sugerir = sessionStorage.getItem('sugerir-2fa') === '1'; sessionStorage.removeItem('sugerir-2fa'); } catch {}
+      if (sugerir && eu.modo2fa === 'opcional' && !eu.totpAtivo) abrir2fa();
       let aba = 'sorteio';
       try { aba = sessionStorage.getItem('aba') || 'sorteio'; } catch {}
       if (aba === 'qr') aba = 'links';
