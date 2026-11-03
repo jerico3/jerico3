@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#011250">
-  <title>Cadastro · Concorra a brindes</title>
+  <title>Importadora VW em Maceió | Brindes Exclusivos</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23011250'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='Arial' font-weight='bold'>VW</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -485,7 +485,6 @@
     carregarConfig().then((cfg) => {
       if (typeof cfg.prefixo === 'string') prefixo = cfg.prefixo;
       if (cfg.hoje) hoje = cfg.hoje;
-      if (cfg.evento) document.title = `${cfg.evento} · Cadastro`;
       if (cfg.marca || cfg.privacidade?.controlador) $('nome-empresa').textContent = cfg.marca || cfg.privacidade.controlador;
       if (cfg.marca) {
         $('marca-comprovante').textContent = cfg.marca;
